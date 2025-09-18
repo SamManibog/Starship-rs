@@ -5,3 +5,7 @@ pub mod circuit;
 pub mod circuit_id;
 
 pub mod circuits;
+
+mod patch_editor;
+
+mod connection_proposal;

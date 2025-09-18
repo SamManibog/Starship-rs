@@ -1,64 +1,6 @@
-use crate::circuit_id::CircuitId;
+use std::collections::HashMap;
 
-///Designator for an input or output port
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PortKind {
-    Input,
-    Output
-}
-
-///The identifier of a port
-///has two components: index and kind
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PortId {
-    data: i32,
-}
-
-impl PortId {
-    pub fn new(index: usize, kind: PortKind) -> Self {
-        let sign: i32 = if kind == PortKind::Input { 1 } else { -1 };
-        let magnitude: i32 = index as i32 + 1;
-        Self {
-            data: sign * magnitude
-        }
-    }
-
-    pub fn kind(&self) -> PortKind {
-        if self.data > 0 {
-            PortKind::Input
-        } else {
-            PortKind::Output
-        }
-    }
-
-    pub fn index(&self) -> usize {
-        (self.data.abs() - 1) as usize
-    }
-}
-
-///The identifier for a port on a specific circuit
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CircuitPortId {
-    pub circuit_id: CircuitId,
-    pub port_id: PortId,
-}
-
-impl CircuitPortId {
-    pub fn new(circuit_id: CircuitId, port_id: PortId) -> Self {
-        Self {
-            circuit_id,
-            port_id
-        }
-    }
-
-    pub fn circuit_id(&self) -> CircuitId {
-        self.circuit_id
-    }
-
-    pub fn port_id(&self) -> PortId {
-        self.port_id
-    }
-}
+use crate::{connection_proposal::ConnectionProposal, circuit_id::{CircuitId, CircuitPortId, PortId, PortKind}};
 
 pub struct CircuitSpecification {
     pub name: &'static str,
@@ -83,6 +25,13 @@ pub trait CircuitBuilder: std::fmt::Debug {
 
     ///Called when removing an input target to a circuit
     fn on_input_removed(&mut self, port: PortId) { let _ = port; }
+
+    ///Request a size for the entire UI.
+    ///This size will be filled with the title, IO ports, padding, etc. along with your custom UI.
+    ///Called every frame before drawing.
+    fn request_size(&self) -> Option<egui::Vec2> {
+        return None;
+    }
 }
 
 ///A circuit that processes signals into outputs
@@ -100,7 +49,8 @@ pub struct CircuitBuilderFrontend {
 }
 
 impl CircuitBuilderFrontend {
-    const DEFAULT_DIMENSIONS: egui::Vec2 = egui::vec2(150.0, 150.0);
+    pub const MINIMUM_WIDTH: f32 = 200.0;
+    pub const DEFAULT_DIMENSIONS: egui::Vec2 = egui::vec2(Self::MINIMUM_WIDTH, 200.0);
 
     ///Creates a new instance
     pub fn new(id: CircuitId, builder: Box<dyn CircuitBuilder>) -> Self {
@@ -113,6 +63,11 @@ impl CircuitBuilderFrontend {
             builder,
             inputs,
         }
+    }
+
+    ///Gets the id of the circuit
+    pub fn id(&self) -> CircuitId {
+        self.id
     }
 
     ///Gets the associated builder
@@ -136,36 +91,60 @@ impl CircuitBuilderFrontend {
         self.inputs[port.index()].push(source);
     }
 
-    pub fn show(&mut self, position: egui::Pos2, ui: &mut egui::Ui) -> egui::Response {
-        let ui_builder = egui::UiBuilder::new()
-            .max_rect(egui::Rect::from_min_size(position, Self::DEFAULT_DIMENSIONS));
+    pub fn show(
+        &mut self,
+        position: egui::Pos2,
+        ui: &mut egui::Ui,
+        register: &mut HashMap<CircuitPortId, egui::Pos2>,
+        connection: &mut ConnectionProposal
+    ) -> egui::Response {
+        let ui_builder = {
+            let mut dimensions = self.builder.request_size().unwrap_or(Self::DEFAULT_DIMENSIONS);
+            dimensions.x = Self::MINIMUM_WIDTH.max(dimensions.x);
+            egui::UiBuilder::new()
+                .sense(egui::Sense::all())
+                .max_rect(egui::Rect::from_min_size(
+                    position,
+                    dimensions
+                ))
+        };
 
         ui.scope_builder(ui_builder, |ui| {
             //detect dragging on title (used for moving the whole circuit)
-            let response = egui::Frame::new()
-                .fill(ui.ctx().style().visuals.faint_bg_color)
-                .stroke(ui.ctx().style().visuals.window_stroke)
-                .show(ui, |ui| {
-                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+            let response = ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
+                egui::Frame::new()
+                    .fill(ui.ctx().style().visuals.window_fill)
+                    .stroke(ui.ctx().style().visuals.window_stroke)
+                    .inner_margin(4.0)
+                    .corner_radius(12.0)
+                    .show(ui, |ui| {
                         ui.add(
                             egui::Label::new(self.builder.specification().name)
                                 .sense(egui::Sense::DRAG)
                         )
                     }).inner
-                }).inner;
+            }).inner;
 
             //draw IO
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    for input in self.builder.specification().input_names {
-                        ui.label(*input);
-                    }
+                    self.draw_ports(
+                        ui,
+                        register,
+                        connection,
+                        self.builder.specification().input_names,
+                        PortKind::Input
+                    );
                 });
-                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |_| {});
+                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |_| { });
                 ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
-                    for output in self.builder.specification().output_names {
-                        ui.label(*output);
-                    }
+                    self.draw_ports(
+                        ui,
+                        register,
+                        connection,
+                        self.builder.specification().output_names,
+                        PortKind::Output
+                    );
                 });
             });
 
@@ -175,10 +154,85 @@ impl CircuitBuilderFrontend {
             response
         }).inner
     }
+
+    fn draw_ports(
+        &self,
+        ui: &mut egui::Ui,
+        register: &mut HashMap<CircuitPortId, egui::Pos2>,
+        connection: &mut ConnectionProposal,
+        names: &[&str],
+        kind: PortKind
+    ) {
+        for (idx, name) in names.iter().enumerate() {
+            ui.horizontal(|ui| {
+                let id = CircuitPortId::new(
+                        self.id,
+                        PortId::new(idx, kind)
+                    );
+                register.insert(
+                    id,
+                    ui.add(PortUi::new(id, connection)).rect.center()
+                );
+                ui.label(*name);
+            });
+        }
+    }
+
 }
 
 impl std::hash::Hash for CircuitBuilderFrontend {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state)
+    }
+}
+
+#[derive(Debug)]
+pub struct PortUi<'a> {
+    ///The id of the associated port
+    id: CircuitPortId,
+
+    ///A mutable reference to the app state's new_connection member, 
+    ///which is used to handle the possible creation of a new connection
+    connection_proposal: &'a mut ConnectionProposal
+}
+
+impl<'a> PortUi<'a> {
+    ///Radius of the port when disconnected
+    pub const UNFILLED_RADIUS: f32 = 5.0;
+
+    ///Color of the port when disconnected
+    pub const UNFILLED_COLOR: egui::Color32 = egui::Color32::RED;
+
+    ///Radius of the port when connected
+    pub const FILLED_RADIUS: f32 = 6.0;
+
+    ///Color of the port when connected
+    pub const FILLED_COLOR: egui::Color32 = egui::Color32::GREEN;
+
+    pub fn new(id: CircuitPortId, connection: &'a mut ConnectionProposal) -> Self {
+        Self {
+            id,
+            connection_proposal: connection
+        }
+    }
+}
+
+impl egui::Widget for PortUi<'_> {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        let (response, painter) = ui.allocate_painter(
+            egui::vec2(PortUi::FILLED_RADIUS * 2.0, PortUi::FILLED_RADIUS * 2.0),
+            egui::Sense::drag()
+        );
+        let center = response.rect.center();
+        painter.circle_filled(center, Self::UNFILLED_RADIUS, Self::UNFILLED_COLOR);
+        if response.drag_started() {
+            response.dnd_set_drag_payload::<CircuitPortId>(self.id);
+            let _ = self.connection_proposal.start(self.id);
+        } else if let Some(_) = response.dnd_release_payload::<CircuitPortId>() {
+            let _ = self.connection_proposal.end(self.id);
+            let _ = self.connection_proposal.finalize();
+        }/* else if let Some(_) = response.dnd_hover_payload::<CircuitPortId>() {
+        }*/
+        response
     }
 }

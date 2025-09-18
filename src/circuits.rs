@@ -19,7 +19,7 @@ impl TestCircuitBuilder {
     const SPECIFICATION: CircuitSpecification = CircuitSpecification {
         name: "TestCircuit",
         input_names: &["input1", "input2"],
-        output_names: &["output1", "out-outputer"],
+        output_names: &["output1", "outputer"],
     };
 
     pub fn new() -> Self {
