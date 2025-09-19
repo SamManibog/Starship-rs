@@ -201,13 +201,13 @@ impl<'a> PortUi<'a> {
     pub const UNFILLED_RADIUS: f32 = 5.0;
 
     ///Color of the port when disconnected
-    pub const UNFILLED_COLOR: egui::Color32 = egui::Color32::RED;
+    pub const UNFILLED_COLOR: egui::Color32 = egui::Color32::BLACK;
 
     ///Radius of the port when connected
     pub const FILLED_RADIUS: f32 = 6.0;
 
     ///Color of the port when connected
-    pub const FILLED_COLOR: egui::Color32 = egui::Color32::GREEN;
+    pub const FILLED_COLOR: egui::Color32 = egui::Color32::BLACK;
 
     pub fn new(id: CircuitPortId, connection: &'a mut ConnectionProposal) -> Self {
         Self {

@@ -8,4 +8,6 @@ pub mod circuits;
 
 mod patch_editor;
 
+mod connection_manager;
+
 mod connection_proposal;
