@@ -1,0 +1,44 @@
+use crate::circuit::{CircuitBuilder, Circuit, CircuitSpecification};
+
+#[derive(Debug, Clone)]
+pub struct SineBuilder {
+}
+
+impl SineBuilder {
+    const SPECIFICATION: CircuitSpecification = CircuitSpecification {
+        name: "Sinewave",
+        input_names: &["amplitude", "frequency"],
+        output_names: &["out"],
+    };
+}
+
+impl CircuitBuilder for SineBuilder {
+    fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        ui.response()
+    }
+
+    fn specification(&self) -> &'static CircuitSpecification {
+        &Self::SPECIFICATION
+    }
+
+    fn build(&self) -> Box<dyn Circuit> {
+        Box::new(Sine::default())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Sine {
+    index: f32
+}
+
+impl Circuit for Sine {
+    fn operate(&mut self, inputs: &[f32], outputs: &mut[f32]) {
+        //Sine function with amplitude inputs[0] and frequency 1hz
+        outputs[0] = inputs[0] * f32::sin(self.index * std::f32::consts::TAU);
+
+        //Incriment index by interval * frequency, effectively making sine function
+        //have a frequency of inputs[1]
+        self.index += (crate::constants::SAMPLE_INTERVAL as f32) * inputs[1];
+        self.index %= 1.0;
+    }
+}

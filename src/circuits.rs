@@ -1,13 +1,17 @@
 use crate::circuit::{CircuitBuilder, Circuit, CircuitSpecification};
 
+mod sine;
+pub use sine::*;
+
 #[derive(Debug)]
 pub struct TestCircuit {
 }
 
 impl Circuit for TestCircuit {
-    fn operate(&mut self, inputs: &Vec<f32>, outputs: &mut Vec<f32>) {
+    fn operate(&mut self, inputs: &[f32], outputs: &mut[f32]) {
         let _ = inputs;
         let _ = outputs;
+        todo!()
     }
 }
 

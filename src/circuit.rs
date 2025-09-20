@@ -37,7 +37,7 @@ pub trait CircuitBuilder: std::fmt::Debug {
 ///A circuit that processes signals into outputs
 pub trait Circuit: std::fmt::Debug {
     ///Handles a vector of signals to produce some output signals.
-    fn operate(&mut self, inputs: &Vec<f32>, outputs: &mut Vec<f32>);
+    fn operate(&mut self, inputs: &[f32], outputs: &mut[f32]);
 }
 
 ///Handles the ui used to build a circuit

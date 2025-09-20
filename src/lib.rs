@@ -6,6 +6,8 @@ pub mod circuit_id;
 
 pub mod circuits;
 
+pub mod constants;
+
 mod patch_editor;
 
 mod connection_manager;

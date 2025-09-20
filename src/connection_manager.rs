@@ -4,7 +4,7 @@ use egui::{Color32, Painter, Pos2, Stroke, epaint::CubicBezierShape};
 use crate::{circuit_id::{CircuitPortId, ConnectionId}, circuit::PortUi};
 
 ///The amount of possible colors for a connection
-pub const CONNECTION_COLOR_COUNT: usize = 6;
+pub const CONNECTION_COLOR_COUNT: usize = 5;
 type ColorIndex = u8;
 type ColorCount = u16;
 type ColorCounter = [ColorCount; CONNECTION_COLOR_COUNT];
@@ -65,7 +65,6 @@ impl ColorTracker for ColorCounter {
 ///The array of possible colors for a connection
 pub const CONNECTION_COLORS: [Color32; CONNECTION_COLOR_COUNT] = [
     Color32::RED,
-    Color32::ORANGE,
     Color32::YELLOW,
     Color32::GREEN,
     Color32::CYAN,

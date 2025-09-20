@@ -88,14 +88,6 @@ impl Default for StarshipApp {
 }
 
 impl StarshipApp {
-    pub const CONNECT_COLORS: &[Color32] = &[
-        Color32::RED,
-        Color32::BLUE,
-        Color32::GREEN,
-        Color32::MAGENTA,
-        Color32::YELLOW,
-    ];
-
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you cjn customize the look and feel of egui using
