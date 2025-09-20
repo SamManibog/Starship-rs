@@ -1,3 +1,8 @@
+use starship_rust::{
+    circuit::CircuitBuilderSpecification as Cbs,
+    circuits::SineBuilder,
+};
+
 fn main() -> eframe::Result {
 
     let native_options = eframe::NativeOptions {
@@ -7,9 +12,17 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
+    let builders = [
+        Cbs::new("Sine", || Box::new(SineBuilder::new()))
+    ];
+
     eframe::run_native(
         "Starship",
         native_options,
-        Box::new(|cc| Ok(Box::new(starship_rust::app::StarshipApp::new(cc))))
+        Box::new(|cc| {
+            Ok(Box::new(
+                starship_rust::app::StarshipApp::new(cc, &builders)
+            ))
+        })
     )
 }

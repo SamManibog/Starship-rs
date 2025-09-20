@@ -10,6 +10,10 @@ impl SineBuilder {
         input_names: &["amplitude", "frequency"],
         output_names: &["out"],
     };
+
+    pub fn new() -> Self {
+        Self{}
+    }
 }
 
 impl CircuitBuilder for SineBuilder {

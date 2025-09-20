@@ -2,53 +2,32 @@ use std::{collections::HashMap, sync::Arc};
 
 use eframe;
 use egui::{
-    CentralPanel,
-    Context,
-    Color32,
-    Id,
-    MenuBar,
-    Pos2,
-    Response,
-    Sense,
-    SidePanel,
-    TextWrapMode,
-    TopBottomPanel,
-    Ui,
-    Vec2,
-    ViewportCommand,
+    CentralPanel, Color32, Context, Id, MenuBar, Pos2, Response, ScrollArea, Sense, SidePanel, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
 };
 
 use crate::{
-    circuit::CircuitBuilderFrontend, 
-    circuit_id::{
-        CircuitId,
-        CircuitPortId,
-        ConnectionId,
-        PortKind
-    },
-    circuits::TestCircuitBuilder,
+    circuit::{CircuitBuilder, CircuitBuilderFrontend, CircuitBuilderSpecification}, 
+    circuit_id::{ CircuitId, CircuitPortId, ConnectionId, PortKind },
     connection_manager::ConnectionManager,
-    connection_proposal::{
-        ConnectionProposal,
-        ConnectionProposalState
-    }
+    connection_proposal::{ ConnectionProposal, ConnectionProposalState }
 };
 
 #[derive(Debug)]
-enum Drag {
+enum CentralInput {
     SceneDrag(Vec2),
     ModuleDrag(CircuitId, Vec2),
-    NoDrag
+    //SceneRightClick(Pos2),
+    NoInput
 }
 
-impl Default for Drag {
+impl Default for CentralInput {
     fn default() -> Self {
-        Self::NoDrag
+        Self::NoInput
     }
 }
 
 #[derive(Debug)]
-pub struct StarshipApp {
+pub struct StarshipApp<'a> {
     cam_pos: egui::Vec2,
     builder_ids: Vec<CircuitId>,
     builder_map: HashMap<CircuitId, CircuitBuilderFrontend>,
@@ -56,8 +35,10 @@ pub struct StarshipApp {
     connections: ConnectionManager,
     connection_proposal: ConnectionProposal,
     focused_port: Option<CircuitPortId>,
+    builders: &'a[CircuitBuilderSpecification],
 }
 
+/*
 impl Default for StarshipApp {
     fn default() -> Self {
         let mut output = Self {
@@ -86,10 +67,11 @@ impl Default for StarshipApp {
         output
     }
 }
+*/
 
-impl StarshipApp {
+impl<'a> StarshipApp<'a> {
     /// Called once before the first frame.
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, builders: &'a[CircuitBuilderSpecification]) -> Self {
         // This is also where you cjn customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
         cc.egui_ctx.set_style({
@@ -98,14 +80,24 @@ impl StarshipApp {
             style.interaction.selectable_labels = false;
             Arc::new(style)
         });
-        Default::default()
+        Self {
+            cam_pos: egui::vec2(0.0, 0.0),
+            builder_ids: vec![],
+        	builder_map: HashMap::new(),
+            builder_pos_map: HashMap::new(),
+            connections: Default::default(),
+            connection_proposal: Default::default(),
+            focused_port: None,
+            builders
+        }
     }
 
     /// Adds a new circuit
-    pub fn add_circuit_builder(&mut self, circuit: CircuitBuilderFrontend, position: Pos2) {
-        self.builder_ids.push(circuit.id());
-        self.builder_pos_map.insert(circuit.id(), position);
-        self.builder_map.insert(circuit.id(), circuit);
+    pub fn add_circuit_builder(&mut self, circuit_builder: Box<dyn CircuitBuilder>, position: Pos2) {
+        let frontend = unsafe{ CircuitBuilderFrontend::new(CircuitId::new(), circuit_builder) };
+        self.builder_ids.push(frontend.id());
+        self.builder_pos_map.insert(frontend.id(), position);
+        self.builder_map.insert(frontend.id(), frontend);
     }
 
     /// Removes the circuit with the given id
@@ -161,10 +153,21 @@ impl StarshipApp {
         } else {
             ui.label("Click a port to focus it.");
         }
+        ui.separator();
+        ScrollArea::vertical().show(ui, |ui| {
+            for builder in self.builders {
+                if ui.button(&builder.display_name).clicked() {
+                    self.add_circuit_builder(
+                        (builder.instance)(),
+                        egui::pos2(self.cam_pos.x + 50.0, self.cam_pos.y + 50.0)
+                    );
+                }
+            }
+        });
     }
 }
 
-impl eframe::App for StarshipApp {
+impl eframe::App for StarshipApp<'_>{
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -182,7 +185,6 @@ impl eframe::App for StarshipApp {
         SidePanel::right("right_panel")
             .max_width(400.0)
             .show(ctx, |ui| {
-                ui.separator();
                 self.draw_connection_editor(ui);
             });
 
@@ -190,13 +192,13 @@ impl eframe::App for StarshipApp {
         //used to draw connections between ports
         let mut port_positions = HashMap::<CircuitPortId, Pos2>::new();
 
-        let drag = CentralPanel::default()
+        let central_response = CentralPanel::default()
             .show(ctx, |ui| {
                 //check if scene is dragged
                 let scene_response = ui.interact(
                     ui.max_rect(),
                     Id::new("Scene"),
-                    Sense::DRAG
+                    Sense::click_and_drag()
                 );
 
                 let mut mod_response: Option<(CircuitId, Response)> = None;
@@ -254,19 +256,21 @@ impl eframe::App for StarshipApp {
                 }
 
                 if let Some((id, response)) = mod_response {
-                    Drag::ModuleDrag(id, response.drag_delta())
+                    CentralInput::ModuleDrag(id, response.drag_delta())
                 } else if scene_response.dragged() {
-                    Drag::SceneDrag(scene_response.drag_delta())
+                    CentralInput::SceneDrag(scene_response.drag_delta())
+                //} else if scene_response.secondary_clicked() {
+                    //CentralInput::SceneRightClick(scene_response.interact_pointer_pos().unwrap())
                 } else {
-                    Drag::NoDrag
+                    CentralInput::NoInput
                 }
-            }).inner;
+            });
 
-        match drag {
-            Drag::ModuleDrag(id, delta) => { *self.builder_pos_map.get_mut(&id).unwrap() += delta; },
-            Drag::SceneDrag(delta) => { self.cam_pos -= delta; },
-            Drag::NoDrag => {},
+        match central_response.inner {
+            CentralInput::ModuleDrag(id, delta) => { *self.builder_pos_map.get_mut(&id).unwrap() += delta; }
+            CentralInput::SceneDrag(delta) => { self.cam_pos -= delta; }
+            //CentralInput::SceneRightClick(pos) => {println!("Clicked: {}", pos)}
+            CentralInput::NoInput => {}
         }
-
     }
 }

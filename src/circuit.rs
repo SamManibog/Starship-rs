@@ -8,6 +8,26 @@ pub struct CircuitSpecification {
     pub output_names: &'static[&'static str]
 }
 
+pub struct CircuitBuilderSpecification {
+    pub display_name: String,
+    pub instance: Box<dyn Fn()->Box<dyn CircuitBuilder>>
+}
+
+impl CircuitBuilderSpecification {
+    pub fn new(name: &str, instance: impl Fn()->Box<dyn CircuitBuilder> + 'static) -> Self {
+        Self {
+            display_name: name.into(),
+            instance: Box::new(instance)
+        }
+    }
+}
+
+impl std::fmt::Debug for CircuitBuilderSpecification {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "display_name: {}", self.display_name)
+    }
+}
+
 ///Creates a circuit based on user parameters
 pub trait CircuitBuilder: std::fmt::Debug {
     ///Draw the circuit UI to the screen. Passed to egui's show function.
@@ -45,7 +65,6 @@ pub trait Circuit: std::fmt::Debug {
 pub struct CircuitBuilderFrontend {
     id: CircuitId,
     builder: Box<dyn CircuitBuilder>,
-    inputs: Vec<Vec<CircuitPortId>>,
 }
 
 impl CircuitBuilderFrontend {
@@ -54,14 +73,9 @@ impl CircuitBuilderFrontend {
 
     ///Creates a new instance
     pub fn new(id: CircuitId, builder: Box<dyn CircuitBuilder>) -> Self {
-        let mut inputs = vec![];
-        for _ in 0..builder.specification().input_names.len() {
-            inputs.push(vec![])
-        }
         Self {
             id,
             builder,
-            inputs,
         }
     }
 
@@ -73,22 +87,6 @@ impl CircuitBuilderFrontend {
     ///Gets the associated builder
     pub fn builder(&self) -> &Box<dyn CircuitBuilder> {
         &self.builder
-    }
-
-    ///Gets the list of inputs
-    pub fn inputs(&self) -> &Vec<Vec<CircuitPortId>> {
-        &self.inputs
-    }
-
-    ///Adds an input source to the list of inputs at the given port
-    pub fn add_input(&mut self, port: PortId, source: CircuitPortId) {
-        //ensure port is an input port
-        assert!(port.kind() == PortKind::Input);
-
-        //ensure source is an output port
-        assert!(source.port_id().kind() == PortKind::Output);
-
-        self.inputs[port.index()].push(source);
     }
 
     pub fn show(
