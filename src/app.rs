@@ -127,18 +127,45 @@ impl StarshipApp {
     }
 
     /// Draws the connection editor in the given ui
-    fn draw_connection_editor(&self, ui: &mut Ui) {
+    fn draw_connection_editor(&mut self, ui: &mut Ui) {
         if let Some(id) = self.focused_port {
-            let spec = self.builder_map[&id.circuit_id()].builder().specification();
-            let port_name = match id.port_id.kind() {
-                PortKind::Input => spec.input_names[id.port_id.index()],
-                PortKind::Output => spec.output_names[id.port_id.index()],
-            };
-            ui.label(format!(
-                "Circuit: {}, Port: {}", 
-                spec.name,
-                port_name
-            ));
+            {
+                let spec = self.builder_map[&id.circuit_id()].builder().specification();
+                let port_name = match id.port_id.kind() {
+                    PortKind::Input => spec.input_names[id.port_id.index()],
+                    PortKind::Output => spec.output_names[id.port_id.index()],
+                };
+                ui.label(format!(
+                    "Circuit: {}, Port: {}", 
+                    spec.name,
+                    port_name
+                ));
+            }
+            let connected_raw = self.connections.query_connected(id);
+            let mut remove_connection = None;
+            if let Some(connected) = connected_raw {
+                for port in connected {
+                    let spec = self.builder_map[&port.circuit_id()].builder().specification();
+                    let port_name = match port.port_id.kind() {
+                        PortKind::Input => spec.input_names[port.port_id.index()],
+                        PortKind::Output => spec.output_names[port.port_id.index()],
+                    };
+                    let button_text = format!(
+                        "Circuit: {}, Port: {}", 
+                        spec.name,
+                        port_name
+                    );
+                    if ui.button(button_text).clicked() {
+                        remove_connection = Some(port);
+                    }
+                }
+            }
+            if let Some(connection) = remove_connection {
+                self.connections.remove_connection(ConnectionId::new_auto(
+                    *connection,
+                    id
+                ));
+            }
         } else {
             ui.label("Click a port to focus it.");
         }

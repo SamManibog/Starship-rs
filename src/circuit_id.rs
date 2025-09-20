@@ -94,6 +94,7 @@ pub struct ConnectionId {
 }
 
 impl ConnectionId {
+    /// Creates a connection Id where source and destination are specified
     pub fn new(src: CircuitPortId, dst: CircuitPortId) -> Self {
         assert!(src.port_id().kind() == PortKind::Output);
         assert!(dst.port_id().kind() == PortKind::Input);
@@ -103,10 +104,22 @@ impl ConnectionId {
         }
     }
 
+    /// Creates a connection id, automatically determinging the source and destination
+    pub fn new_auto(port1: CircuitPortId, port2: CircuitPortId) -> Self {
+        assert!(port1.port_id().kind() != port2.port_id().kind());
+        if port1.port_id.kind() == PortKind::Output {
+            Self::new(port1, port2)
+        } else {
+            Self::new(port2, port1)
+        }
+    }
+
+    /// Returns the source port
     pub fn src(&self) -> CircuitPortId {
         self.src
     }
 
+    /// Returns the destination port
     pub fn dst(&self) -> CircuitPortId {
         self.dst
     }
