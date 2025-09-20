@@ -221,7 +221,7 @@ impl egui::Widget for PortUi<'_> {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
         let (response, painter) = ui.allocate_painter(
             egui::vec2(PortUi::FILLED_RADIUS * 2.0, PortUi::FILLED_RADIUS * 2.0),
-            egui::Sense::drag()
+            egui::Sense::click_and_drag()
         );
         let center = response.rect.center();
         painter.circle_filled(center, Self::UNFILLED_RADIUS, Self::UNFILLED_COLOR);
@@ -231,8 +231,9 @@ impl egui::Widget for PortUi<'_> {
         } else if let Some(_) = response.dnd_release_payload::<CircuitPortId>() {
             let _ = self.connection_proposal.end(self.id);
             let _ = self.connection_proposal.finalize();
-        }/* else if let Some(_) = response.dnd_hover_payload::<CircuitPortId>() {
-        }*/
+        } else if response.clicked() {
+            self.connection_proposal.click(self.id);
+        }
         response
     }
 }

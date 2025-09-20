@@ -6,6 +6,7 @@ use ConnectionProposalState as Cps;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionProposalState {
     NotStarted,
+    Clicked(CircuitPortId),
     Started(CircuitPortId),
     Proposed(CircuitPortId, CircuitPortId),
     Finalized(CircuitPortId, CircuitPortId),
@@ -15,6 +16,7 @@ impl ConnectionProposalState {
     pub fn kind(&self) -> ConnectionProposalKind {
         match self {
             Self::NotStarted => ConnectionProposalKind::NotStarted,
+            Self::Clicked(_) => ConnectionProposalKind::Clicked,
             Self::Started(_) => ConnectionProposalKind::Started,
             Self::Proposed(_, _) => ConnectionProposalKind::Proposed,
             Self::Finalized(_, _) => ConnectionProposalKind::Finalized,
@@ -86,6 +88,10 @@ impl ConnectionProposal {
         }
     }
 
+    pub fn click(&mut self, id: CircuitPortId) {
+        self.state = Cps::Clicked(id)
+    }
+
     pub fn cancel(&mut self) {
         self.state = Cps::NotStarted
     }
@@ -103,6 +109,7 @@ pub enum ConnectionProposalError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionProposalKind {
     NotStarted,
+    Clicked,
     Started,
     Proposed,
     Finalized,
@@ -112,6 +119,7 @@ impl std::fmt::Display for ConnectionProposalKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", match self {
             Self::NotStarted => "NotStarted",
+            Self::Clicked => "Clicked",
             Self::Started => "Started",
             Self::Proposed => "Proposed",
             Self::Finalized => "Finalized"
