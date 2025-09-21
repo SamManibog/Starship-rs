@@ -1,7 +1,7 @@
 use std::{collections::{HashMap, HashSet}, u16};
 use egui::{Color32, Painter, Pos2, Stroke, epaint::CubicBezierShape};
 
-use crate::{circuit_id::{CircuitPortId, ConnectionId}, circuit::PortUi};
+use crate::{circuit::PortUi, circuit_id::{CircuitId, CircuitPortId, ConnectionId}};
 
 ///The amount of possible colors for a connection
 pub const CONNECTION_COLOR_COUNT: usize = 5;
@@ -165,30 +165,54 @@ impl ConnectionManager {
                     true
                 }
             });
-            self.connection_set.remove(&connection);
-            self.connection_map
-                .get_mut(&connection.src())
-                .unwrap()
-                .retain(|port| *port != connection.dst());
-            self.connection_map
-                .get_mut(&connection.dst())
-                .unwrap()
-                .retain(|port| *port != connection.src());
-
-            //remove color
-            self.counter_map
-                .get_mut(&connection.src())
-                .unwrap()
-                .remove_color(color);
-            self.counter_map
-                .get_mut(&connection.dst())
-                .unwrap()
-                .remove_color(color);
+            self.wipe_connection_data(connection, color);
 
             true
         } else {
             false
         }
+    }
+
+    ///Removes the all connections associated with the given circuit
+    pub fn remove_circuit(&mut self, circuit: CircuitId) {
+        let mut to_remove = vec![];
+        self.connections.retain(|(entry, col)| {
+            if entry.src().circuit_id == circuit || entry.dst().circuit_id == circuit {
+                let color = *col;
+                to_remove.push((*entry, color));
+                false
+            } else {
+                true
+            }
+        });
+        for (connection, color) in to_remove {
+            self.wipe_connection_data(connection, color);
+        }
+    }
+
+    ///Clears all data associated with the connection. You must provide the color
+    ///associated with the connection, or the manager will not function properly
+    ///Does not remove the connection from the list of connections
+    fn wipe_connection_data(&mut self, connection: ConnectionId, color: ColorIndex) {
+        self.connection_set.remove(&connection);
+        self.connection_map
+            .get_mut(&connection.src())
+            .unwrap()
+            .retain(|port| *port != connection.dst());
+        self.connection_map
+            .get_mut(&connection.dst())
+            .unwrap()
+            .retain(|port| *port != connection.src());
+
+        //remove color
+        self.counter_map
+            .get_mut(&connection.src())
+            .unwrap()
+            .remove_color(color);
+        self.counter_map
+            .get_mut(&connection.dst())
+            .unwrap()
+            .remove_color(color);
     }
 
     const CONNECT_Y_FACTOR: f32 = 1000.0;

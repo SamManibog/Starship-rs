@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, io::IsTerminal, sync::Arc};
 
 use eframe;
 use egui::{
@@ -9,7 +9,7 @@ use crate::{
     circuit::{CircuitBuilder, CircuitBuilderFrontend, CircuitBuilderSpecification}, 
     circuit_id::{ CircuitId, CircuitPortId, ConnectionId, PortKind },
     connection_manager::ConnectionManager,
-    connection_proposal::{ ConnectionProposal, ConnectionProposalState }
+    circuit_input::{ CircuitInput, CircuitInputState }
 };
 
 #[derive(Debug)]
@@ -18,6 +18,13 @@ enum CentralInput {
     ModuleDrag(CircuitId, Vec2),
     //SceneRightClick(Pos2),
     NoInput
+}
+
+#[derive(Debug)]
+enum InspectorFocus {
+    None,
+    Port(CircuitPortId),
+    Circuit(CircuitId),
 }
 
 impl Default for CentralInput {
@@ -33,8 +40,8 @@ pub struct StarshipApp<'a> {
     builder_map: HashMap<CircuitId, CircuitBuilderFrontend>,
     builder_pos_map: HashMap<CircuitId, Pos2>,
     connections: ConnectionManager,
-    connection_proposal: ConnectionProposal,
-    focused_port: Option<CircuitPortId>,
+    circuit_input: CircuitInput,
+    inspector_focus: InspectorFocus,
     builders: &'a[CircuitBuilderSpecification],
 }
 
@@ -86,8 +93,8 @@ impl<'a> StarshipApp<'a> {
         	builder_map: HashMap::new(),
             builder_pos_map: HashMap::new(),
             connections: Default::default(),
-            connection_proposal: Default::default(),
-            focused_port: None,
+            circuit_input: Default::default(),
+            inspector_focus: InspectorFocus::None,
             builders
         }
     }
@@ -102,17 +109,33 @@ impl<'a> StarshipApp<'a> {
 
     /// Removes the circuit with the given id
     pub fn remove_circuit_builder(&mut self, id: CircuitId) {
+        //delete builder
         self.builder_ids.retain(|entry| *entry != id);
         self.builder_pos_map.remove(&id);
         self.builder_map.remove(&id);
-        todo!();
-        //must individually delete all associated connections
-        //must handle case where a deleted connection is focused
+
+        //unfocus connection or builder if it was deleted
+        match self.inspector_focus {
+            InspectorFocus::Port(focus_id) => {
+                if focus_id.circuit_id == id {
+                    self.inspector_focus = InspectorFocus::None;
+                }
+            }
+            InspectorFocus::Circuit(focus_id) => {
+                if focus_id == id {
+                    self.inspector_focus = InspectorFocus::None;
+                }
+            }
+            InspectorFocus::None => {}
+        }
+
+        //Delete all associated connections
+        self.connections.remove_circuit(id);
     }
 
-    /// Draws the connection editor in the given ui
-    fn draw_connection_editor(&mut self, ui: &mut Ui) {
-        if let Some(id) = self.focused_port {
+    /// Draws the inspector to the given ui
+    fn draw_inspector(&mut self, ui: &mut Ui) {
+        if let InspectorFocus::Port(id) = self.inspector_focus {
             {
                 let spec = self.builder_map[&id.circuit_id()].builder().specification();
                 let port_name = match id.port_id.kind() {
@@ -150,8 +173,12 @@ impl<'a> StarshipApp<'a> {
                     id
                 ));
             }
+        } else if let InspectorFocus::Circuit(id) = self.inspector_focus {
+            if ui.button(format!("Delete {:?}", id)).clicked() {
+                self.remove_circuit_builder(id);
+            }
         } else {
-            ui.label("Click a port to focus it.");
+            ui.label("Click a port or circuit to focus it.");
         }
         ui.separator();
         ScrollArea::vertical().show(ui, |ui| {
@@ -165,6 +192,7 @@ impl<'a> StarshipApp<'a> {
             }
         });
     }
+
 }
 
 impl eframe::App for StarshipApp<'_>{
@@ -185,7 +213,7 @@ impl eframe::App for StarshipApp<'_>{
         SidePanel::right("right_panel")
             .max_width(400.0)
             .show(ctx, |ui| {
-                self.draw_connection_editor(ui);
+                self.draw_inspector(ui);
             });
 
         //A map CircuitPortId -> egui::Pos2
@@ -207,7 +235,7 @@ impl eframe::App for StarshipApp<'_>{
                         self.builder_pos_map[id] - self.cam_pos,
                         ui,
                         &mut port_positions,
-                        &mut self.connection_proposal,
+                        &mut self.circuit_input,
                     );
                     if response.dragged() {
                         mod_response = Some((*id, response))
@@ -221,8 +249,8 @@ impl eframe::App for StarshipApp<'_>{
                     self.connections.draw_connections(painter, &port_positions);
 
                     //draw new connections and handle new connection state
-                    if let ConnectionProposalState::Started(connection) = &self.connection_proposal.state() {
-                        self.focused_port = Some(*connection);
+                    if let CircuitInputState::StartConnection(connection) = &self.circuit_input.state() {
+                        self.inspector_focus = InspectorFocus::Port(*connection);
                         //ensure we are still dragging and on-screen
                         let mouse_pos_opt = ui.ctx().input(|input| {
                             if input.pointer.primary_released() {
@@ -243,15 +271,15 @@ impl eframe::App for StarshipApp<'_>{
                             //Self::draw_connection(painter, start, end);
                             ConnectionManager::draw_connection(painter, Color32::WHITE, start, end);
                         } else {
-                            self.connection_proposal.cancel();
+                            self.circuit_input.clear();
                         }
 
-                    } else if let ConnectionProposalState::Finalized(start, end) = *self.connection_proposal.state() {
+                    } else if let CircuitInputState::FinalizeConnection(start, end) = *self.circuit_input.state() {
                         self.connections.add_connection(ConnectionId::new(start, end));
-                        self.connection_proposal.cancel();
-                    } else if let ConnectionProposalState::Clicked(id) = *self.connection_proposal.state() {
-                        self.focused_port = Some(id);
-                        self.connection_proposal.cancel();
+                        self.circuit_input.clear();
+                    } else if let CircuitInputState::PortClick(id) = *self.circuit_input.state() {
+                        self.inspector_focus = InspectorFocus::Port(id);
+                        self.circuit_input.clear();
                     }
                 }
 
@@ -265,6 +293,11 @@ impl eframe::App for StarshipApp<'_>{
                     CentralInput::NoInput
                 }
             });
+
+        if let CircuitInputState::CircuitClick(id) = self.circuit_input.state() {
+            self.inspector_focus = InspectorFocus::Circuit(*id);
+            self.circuit_input.clear();
+        }
 
         match central_response.inner {
             CentralInput::ModuleDrag(id, delta) => { *self.builder_pos_map.get_mut(&id).unwrap() += delta; }

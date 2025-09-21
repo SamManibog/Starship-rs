@@ -12,4 +12,4 @@ mod patch_editor;
 
 mod connection_manager;
 
-mod connection_proposal;
+mod circuit_input;

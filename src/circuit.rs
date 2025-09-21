@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{connection_proposal::ConnectionProposal, circuit_id::{CircuitId, CircuitPortId, PortId, PortKind}};
+use crate::{circuit_input::CircuitInput, circuit_id::{CircuitId, CircuitPortId, PortId, PortKind}};
 
 pub struct CircuitSpecification {
     pub name: &'static str,
@@ -94,7 +94,7 @@ impl CircuitBuilderFrontend {
         position: egui::Pos2,
         ui: &mut egui::Ui,
         register: &mut HashMap<CircuitPortId, egui::Pos2>,
-        connection: &mut ConnectionProposal
+        input: &mut CircuitInput
     ) -> egui::Response {
         let ui_builder = {
             let mut dimensions = self.builder.request_size().unwrap_or(Self::DEFAULT_DIMENSIONS);
@@ -118,7 +118,7 @@ impl CircuitBuilderFrontend {
                     .show(ui, |ui| {
                         ui.add(
                             egui::Label::new(self.builder.specification().name)
-                                .sense(egui::Sense::DRAG)
+                                .sense(egui::Sense::click_and_drag())
                         )
                     }).inner
             }).inner;
@@ -129,7 +129,7 @@ impl CircuitBuilderFrontend {
                     self.draw_ports(
                         ui,
                         register,
-                        connection,
+                        input,
                         self.builder.specification().input_names,
                         PortKind::Input
                     );
@@ -139,7 +139,7 @@ impl CircuitBuilderFrontend {
                     self.draw_ports(
                         ui,
                         register,
-                        connection,
+                        input,
                         self.builder.specification().output_names,
                         PortKind::Output
                     );
@@ -149,6 +149,10 @@ impl CircuitBuilderFrontend {
             //draw builder
             self.builder.show(ui);
 
+            if response.clicked() {
+                input.circuit_click(self.id);
+            }
+
             response
         }).inner
     }
@@ -157,7 +161,7 @@ impl CircuitBuilderFrontend {
         &self,
         ui: &mut egui::Ui,
         register: &mut HashMap<CircuitPortId, egui::Pos2>,
-        connection: &mut ConnectionProposal,
+        connection: &mut CircuitInput,
         names: &[&str],
         kind: PortKind
     ) {
@@ -191,7 +195,7 @@ pub struct PortUi<'a> {
 
     ///A mutable reference to the app state's new_connection member, 
     ///which is used to handle the possible creation of a new connection
-    connection_proposal: &'a mut ConnectionProposal
+    connection_proposal: &'a mut CircuitInput
 }
 
 impl<'a> PortUi<'a> {
@@ -207,7 +211,7 @@ impl<'a> PortUi<'a> {
     ///Color of the port when connected
     pub const FILLED_COLOR: egui::Color32 = egui::Color32::BLACK;
 
-    pub fn new(id: CircuitPortId, connection: &'a mut ConnectionProposal) -> Self {
+    pub fn new(id: CircuitPortId, connection: &'a mut CircuitInput) -> Self {
         Self {
             id,
             connection_proposal: connection
@@ -227,7 +231,7 @@ impl egui::Widget for PortUi<'_> {
             response.dnd_set_drag_payload::<CircuitPortId>(self.id);
             let _ = self.connection_proposal.start(self.id);
         } else if let Some(_) = response.dnd_release_payload::<CircuitPortId>() {
-            let _ = self.connection_proposal.end(self.id);
+            let _ = self.connection_proposal.propose(self.id);
             let _ = self.connection_proposal.finalize();
         } else if response.clicked() {
             self.connection_proposal.click(self.id);
