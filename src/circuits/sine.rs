@@ -17,10 +17,6 @@ impl SineBuilder {
 }
 
 impl CircuitBuilder for SineBuilder {
-    fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        ui.response()
-    }
-
     fn specification(&self) -> &'static CircuitSpecification {
         &Self::SPECIFICATION
     }

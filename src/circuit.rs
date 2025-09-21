@@ -32,7 +32,7 @@ impl std::fmt::Debug for CircuitBuilderSpecification {
 pub trait CircuitBuilder: std::fmt::Debug {
     ///Draw the circuit UI to the screen. Passed to egui's show function.
     ///Do not attempt to handle circuit connections in this step.
-    fn show(&mut self, ui: &mut egui::Ui) -> egui::Response;
+    fn show(&mut self, ui: &mut egui::Ui) { let _ = ui; }
 
     ///gets the specification for the circuit
     fn specification(&self) -> &'static CircuitSpecification;
