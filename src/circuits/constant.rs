@@ -3,13 +3,13 @@ use crate::circuit::{CircuitBuilder, Circuit, CircuitSpecification};
 #[derive(Debug, Clone)]
 pub struct ConstantBuilder {
     value: f32,
-    current_text: String
+    text: String
 }
 
 impl ConstantBuilder {
     const SPECIFICATION: CircuitSpecification = CircuitSpecification {
         name: "Constant",
-        output_names: &["out"],
+        output_names: &["Out"],
         input_names: &[],
     };
 
@@ -17,30 +17,14 @@ impl ConstantBuilder {
         let value = 0.0_f32;
         Self{
             value,
-            current_text: value.to_string()
+            text: value.to_string()
         }
     }
 }
 
 impl CircuitBuilder for ConstantBuilder {
     fn show(&mut self, ui: &mut egui::Ui) {
-        let mut text = self.current_text.clone();
-        let response = ui.text_edit_singleline(&mut text);
-        if response.changed() {
-            //ensure entered characters are valid in a float
-            if text.find(|char: char| {
-                !char.is_numeric() && char != '.' && char != '-'
-            }) == None {
-                self.current_text = text;
-            }
-        }
-
-        if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            if let Ok(value) = self.current_text.parse::<f32>() {
-                self.value = value;
-            }
-            self.current_text = self.value.to_string();
-        }
+        crate::utils::float_input(ui, &mut self.text, &mut self.value);
     }
 
     fn specification(&self) -> &'static CircuitSpecification {
@@ -49,6 +33,10 @@ impl CircuitBuilder for ConstantBuilder {
 
     fn build(&self) -> Box<dyn Circuit> {
         Box::new(Constant{ value: self.value })
+    }
+
+    fn request_size(&self) -> Option<egui::Vec2> {
+        Some(egui::vec2(100.0, 70.0))
     }
 }
 

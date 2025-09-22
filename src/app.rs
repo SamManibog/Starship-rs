@@ -1,22 +1,19 @@
-use std::{collections::HashMap, io::IsTerminal, sync::Arc};
+use std::{collections::{HashMap, HashSet}, sync::Arc};
 
 use eframe;
 use egui::{
-    CentralPanel, Color32, Context, Id, MenuBar, Pos2, Response, ScrollArea, Sense, SidePanel, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
+    Area, CentralPanel, Color32, Context, Frame, Id, MenuBar, Pos2, Response, ScrollArea, Sense, SidePanel, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
 };
 
 use crate::{
-    circuit::{CircuitBuilder, CircuitBuilderFrontend, CircuitBuilderSpecification}, 
-    circuit_id::{ CircuitId, CircuitPortId, ConnectionId, PortKind },
-    connection_manager::ConnectionManager,
-    circuit_input::{ CircuitInput, CircuitInputState }
+    circuit::{CircuitBuilder, CircuitBuilderFrontend, CircuitBuilderSpecification}, circuit_id::{ CircuitId, CircuitPortId, ConnectionId, PortKind }, circuit_input::{ CircuitInput, PortInputState }, circuits::SpeakerBuilder, connection_manager::ConnectionManager
 };
 
 #[derive(Debug)]
 enum CentralInput {
     SceneDrag(Vec2),
     ModuleDrag(CircuitId, Vec2),
-    //SceneRightClick(Pos2),
+    SceneRightClick(Pos2),
     NoInput
 }
 
@@ -39,42 +36,13 @@ pub struct StarshipApp<'a> {
     builder_ids: Vec<CircuitId>,
     builder_map: HashMap<CircuitId, CircuitBuilderFrontend>,
     builder_pos_map: HashMap<CircuitId, Pos2>,
+    speakers: HashSet<CircuitId>,
     connections: ConnectionManager,
     circuit_input: CircuitInput,
     inspector_focus: InspectorFocus,
     builders: &'a[CircuitBuilderSpecification],
+    new_circuit_ui: Option<Pos2>,
 }
-
-/*
-impl Default for StarshipApp {
-    fn default() -> Self {
-        let mut output = Self {
-            cam_pos: egui::vec2(0.0, 0.0),
-            builder_ids: vec![],
-        	builder_map: HashMap::new(),
-            builder_pos_map: HashMap::new(),
-            connections: Default::default(),
-            connection_proposal: Default::default(),
-            focused_port: None,
-        };
-        output.add_circuit_builder(
-            CircuitBuilderFrontend::new(
-                unsafe { CircuitId::new() },
-                Box::new(TestCircuitBuilder::new())
-            ),
-            egui::pos2(100.0, 100.0)
-        );
-        output.add_circuit_builder(
-            CircuitBuilderFrontend::new(
-                unsafe { CircuitId::new() },
-                Box::new(TestCircuitBuilder::new())
-            ),
-            egui::pos2(200.0, 200.0)
-        );
-        output
-    }
-}
-*/
 
 impl<'a> StarshipApp<'a> {
     /// Called once before the first frame.
@@ -92,28 +60,42 @@ impl<'a> StarshipApp<'a> {
             builder_ids: vec![],
         	builder_map: HashMap::new(),
             builder_pos_map: HashMap::new(),
+            speakers: HashSet::new(),
             connections: Default::default(),
             circuit_input: Default::default(),
             inspector_focus: InspectorFocus::None,
-            builders
+            builders,
+            new_circuit_ui: None,
         }
     }
 
-    /// Adds a new circuit
-    pub fn add_circuit_builder(&mut self, circuit_builder: Box<dyn CircuitBuilder>, position: Pos2) {
-        let frontend = unsafe{ CircuitBuilderFrontend::new(CircuitId::new(), circuit_builder) };
+    /// Adds a new speaker at the given position
+    /// Returns the id of the new speaker
+	pub fn add_speaker(&mut self, position: Pos2) -> CircuitId {
+        let builder = Box::new(SpeakerBuilder::new());
+        let id = self.add_circuit_builder(builder, position);
+        self.speakers.insert(id);
+        id
+    }
+
+    /// Adds a new circuit at the given position
+    /// Do not use this method to add a speaker circuit. Use add_speaker() instead.
+    /// Returns the id of the new circuit
+    pub fn add_circuit_builder(
+        &mut self,
+        circuit_builder: Box<dyn CircuitBuilder>,
+        position: Pos2
+    ) -> CircuitId {
+        let id = unsafe { CircuitId::new() };
+        let frontend = CircuitBuilderFrontend::new(id, circuit_builder);
         self.builder_ids.push(frontend.id());
         self.builder_pos_map.insert(frontend.id(), position);
         self.builder_map.insert(frontend.id(), frontend);
+        id
     }
 
     /// Removes the circuit with the given id
     pub fn remove_circuit_builder(&mut self, id: CircuitId) {
-        //delete builder
-        self.builder_ids.retain(|entry| *entry != id);
-        self.builder_pos_map.remove(&id);
-        self.builder_map.remove(&id);
-
         //unfocus connection or builder if it was deleted
         match self.inspector_focus {
             InspectorFocus::Port(focus_id) => {
@@ -129,8 +111,47 @@ impl<'a> StarshipApp<'a> {
             InspectorFocus::None => {}
         }
 
-        //Delete all associated connections
+        //delete builder
+        self.builder_ids.retain(|entry| *entry != id);
+        self.builder_pos_map.remove(&id);
+        self.builder_map.remove(&id);
+        self.speakers.remove(&id);
         self.connections.remove_circuit(id);
+    }
+
+    /// Draws the ui for adding a new circuit at the given location
+    fn draw_new_circuit_ui(&mut self, ctx: &Context, position: Pos2, old: bool) {
+        let response = Area::new(Id::new("new_circuit_ui"))
+            .fixed_pos(position)
+            .sense(Sense::click_and_drag())
+            .show(ctx, |ui| {
+                Frame::new() .show(ui, |ui| {
+                    ui.label("Add a circuit...");
+                    ScrollArea::vertical().show(ui, |ui| {
+                        for builder in self.builders {
+                            if ui.button(&builder.display_name).clicked() {
+                                let id = self.add_circuit_builder(
+                                    (builder.instance)(),
+                                    position + self.cam_pos
+                                );
+                                self.inspector_focus = InspectorFocus::Circuit(id);
+                            }
+                        }
+                        if ui.button("Speaker").clicked() {
+                            let id = self.add_speaker(position + self.cam_pos);
+                            self.inspector_focus = InspectorFocus::Circuit(id);
+                        }
+                    });
+                })
+            }).response;
+
+        // If there was some click off of the ui, close it
+        // If there was a click on one of the buttons, will cancel too
+        if old && !response.clicked() && ctx.input(|i| {
+            i.pointer.any_click() || i.pointer.is_decidedly_dragging()
+        }) {
+            self.new_circuit_ui = None;
+        }
     }
 
     /// Draws the inspector to the given ui
@@ -181,16 +202,6 @@ impl<'a> StarshipApp<'a> {
             ui.label("Click a port or circuit to focus it.");
         }
         ui.separator();
-        ScrollArea::vertical().show(ui, |ui| {
-            for builder in self.builders {
-                if ui.button(&builder.display_name).clicked() {
-                    self.add_circuit_builder(
-                        (builder.instance)(),
-                        egui::pos2(self.cam_pos.x + 50.0, self.cam_pos.y + 50.0)
-                    );
-                }
-            }
-        });
     }
 
 }
@@ -209,12 +220,13 @@ impl eframe::App for StarshipApp<'_>{
             });
         });
 
-
         SidePanel::right("right_panel")
             .max_width(400.0)
             .show(ctx, |ui| {
                 self.draw_inspector(ui);
             });
+
+        let old_new_circuit_ui = self.new_circuit_ui != None;
 
         //A map CircuitPortId -> egui::Pos2
         //used to draw connections between ports
@@ -222,6 +234,7 @@ impl eframe::App for StarshipApp<'_>{
 
         let central_response = CentralPanel::default()
             .show(ctx, |ui| {
+
                 //check if scene is dragged
                 let scene_response = ui.interact(
                     ui.max_rect(),
@@ -231,12 +244,21 @@ impl eframe::App for StarshipApp<'_>{
 
                 let mut mod_response: Option<(CircuitId, Response)> = None;
                 for id in self.builder_ids.iter_mut() {
+                    let highlight = match self.inspector_focus {
+                        InspectorFocus::Port(port) => port.circuit_id == *id,
+                        InspectorFocus::Circuit(circuit) => circuit == *id,
+                        InspectorFocus::None => false
+                    };
                     let response = self.builder_map.get_mut(id).unwrap().show(
                         self.builder_pos_map[id] - self.cam_pos,
                         ui,
                         &mut port_positions,
                         &mut self.circuit_input,
+                        highlight
                     );
+                    if response.dragged() || response.clicked() {
+                        self.inspector_focus = InspectorFocus::Circuit(*id);
+                    }
                     if response.dragged() {
                         mod_response = Some((*id, response))
                     }
@@ -249,7 +271,7 @@ impl eframe::App for StarshipApp<'_>{
                     self.connections.draw_connections(painter, &port_positions);
 
                     //draw new connections and handle new connection state
-                    if let CircuitInputState::StartConnection(connection) = &self.circuit_input.state() {
+                    if let PortInputState::StartConnection(connection) = &self.circuit_input.state() {
                         self.inspector_focus = InspectorFocus::Port(*connection);
                         //ensure we are still dragging and on-screen
                         let mouse_pos_opt = ui.ctx().input(|input| {
@@ -274,36 +296,39 @@ impl eframe::App for StarshipApp<'_>{
                             self.circuit_input.clear();
                         }
 
-                    } else if let CircuitInputState::FinalizeConnection(start, end) = *self.circuit_input.state() {
+                    } else if let PortInputState::FinalizeConnection(start, end) = *self.circuit_input.state() {
                         self.connections.add_connection(ConnectionId::new(start, end));
                         self.circuit_input.clear();
-                    } else if let CircuitInputState::PortClick(id) = *self.circuit_input.state() {
+                    } else if let PortInputState::Click(id) = *self.circuit_input.state() {
                         self.inspector_focus = InspectorFocus::Port(id);
                         self.circuit_input.clear();
                     }
+                }
+
+                if scene_response.clicked() {
+                    self.inspector_focus =  InspectorFocus::None;
                 }
 
                 if let Some((id, response)) = mod_response {
                     CentralInput::ModuleDrag(id, response.drag_delta())
                 } else if scene_response.dragged() {
                     CentralInput::SceneDrag(scene_response.drag_delta())
-                //} else if scene_response.secondary_clicked() {
-                    //CentralInput::SceneRightClick(scene_response.interact_pointer_pos().unwrap())
+                } else if scene_response.secondary_clicked() {
+                    CentralInput::SceneRightClick(scene_response.interact_pointer_pos().unwrap())
                 } else {
                     CentralInput::NoInput
                 }
             });
 
-        if let CircuitInputState::CircuitClick(id) = self.circuit_input.state() {
-            self.inspector_focus = InspectorFocus::Circuit(*id);
-            self.circuit_input.clear();
-        }
-
         match central_response.inner {
             CentralInput::ModuleDrag(id, delta) => { *self.builder_pos_map.get_mut(&id).unwrap() += delta; }
             CentralInput::SceneDrag(delta) => { self.cam_pos -= delta; }
-            //CentralInput::SceneRightClick(pos) => {println!("Clicked: {}", pos)}
+            CentralInput::SceneRightClick(pos) => { self.new_circuit_ui = Some(pos); }
             CentralInput::NoInput => {}
+        }
+
+        if let Some(pos) = self.new_circuit_ui {
+            self.draw_new_circuit_ui(ctx, pos, old_new_circuit_ui);
         }
     }
 }

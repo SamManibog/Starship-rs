@@ -7,8 +7,8 @@ pub struct SineBuilder {
 impl SineBuilder {
     const SPECIFICATION: CircuitSpecification = CircuitSpecification {
         name: "Sinewave",
-        input_names: &["amplitude", "frequency"],
-        output_names: &["out"],
+        input_names: &["Amplitude", "Frequency"],
+        output_names: &["Out"],
     };
 
     pub fn new() -> Self {

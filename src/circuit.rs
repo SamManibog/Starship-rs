@@ -1,6 +1,11 @@
 use std::collections::HashMap;
 
-use crate::{circuit_input::CircuitInput, circuit_id::{CircuitId, CircuitPortId, PortId, PortKind}};
+use egui::{Color32, Ui};
+
+use crate::{
+    circuit_id::{CircuitId, CircuitPortId, PortId, PortKind},
+    circuit_input::CircuitInput,
+};
 
 pub struct CircuitSpecification {
     pub name: &'static str,
@@ -49,9 +54,13 @@ pub trait CircuitBuilder: std::fmt::Debug {
     ///Request a size for the entire UI.
     ///This size will be filled with the title, IO ports, padding, etc. along with your custom UI.
     ///Called every frame before drawing.
-    fn request_size(&self) -> Option<egui::Vec2> {
-        return None;
-    }
+    fn request_size(&self) -> Option<egui::Vec2> { None }
+}
+
+///Builds a circuit that can be controlled at runtime
+pub trait ControlCircuitBuilder: CircuitBuilder {
+    ///Returns a function that is used to draw the ui for the controller
+    fn build_ui(&self) -> Box<dyn FnMut(Ui)>;
 }
 
 ///A circuit that processes signals into outputs
@@ -68,8 +77,7 @@ pub struct CircuitBuilderFrontend {
 }
 
 impl CircuitBuilderFrontend {
-    pub const MINIMUM_WIDTH: f32 = 200.0;
-    pub const DEFAULT_DIMENSIONS: egui::Vec2 = egui::vec2(Self::MINIMUM_WIDTH, 200.0);
+    pub const DEFAULT_DIMENSIONS: egui::Vec2 = egui::vec2(200.0, 200.0);
 
     ///Creates a new instance
     pub fn new(id: CircuitId, builder: Box<dyn CircuitBuilder>) -> Self {
@@ -94,66 +102,58 @@ impl CircuitBuilderFrontend {
         position: egui::Pos2,
         ui: &mut egui::Ui,
         register: &mut HashMap<CircuitPortId, egui::Pos2>,
-        input: &mut CircuitInput
+        input: &mut CircuitInput,
+        highlight: bool
     ) -> egui::Response {
-        let ui_builder = {
-            let mut dimensions = self.builder.request_size().unwrap_or(Self::DEFAULT_DIMENSIONS);
-            dimensions.x = Self::MINIMUM_WIDTH.max(dimensions.x);
-            egui::UiBuilder::new()
-                .sense(egui::Sense::all())
-                .max_rect(egui::Rect::from_min_size(
-                    position,
-                    dimensions
-                ))
-        };
+        let ui_builder = egui::UiBuilder::new()
+            .sense(egui::Sense::all())
+            .max_rect(egui::Rect::from_min_size(
+                position,
+                self.builder.request_size().unwrap_or(Self::DEFAULT_DIMENSIONS)
+            ));
 
         ui.scope_builder(ui_builder, |ui| {
-            //detect dragging on title (used for moving the whole circuit)
-            let response = ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
-                egui::Frame::new()
-                    .fill(ui.ctx().style().visuals.window_fill)
-                    .stroke(ui.ctx().style().visuals.window_stroke)
-                    .inner_margin(4.0)
-                    .corner_radius(12.0)
-                    .show(ui, |ui| {
-                        ui.add(
-                            egui::Label::new(self.builder.specification().name)
-                                .sense(egui::Sense::click_and_drag())
-                        )
-                    }).inner
-            }).inner;
-
-            //draw IO
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    self.draw_ports(
-                        ui,
-                        register,
-                        input,
-                        self.builder.specification().input_names,
-                        PortKind::Input
-                    );
-                });
-                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |_| { });
-                ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
-                    self.draw_ports(
-                        ui,
-                        register,
-                        input,
-                        self.builder.specification().output_names,
-                        PortKind::Output
-                    );
-                });
-            });
-
-            //draw builder
-            self.builder.show(ui);
-
-            if response.clicked() {
-                input.circuit_click(self.id);
+            let mut stroke = ui.ctx().style().visuals.window_stroke;
+            if highlight {
+                stroke.color = Color32::WHITE;
             }
+            egui::Frame::new()
+                .fill(ui.ctx().style().visuals.window_fill)
+                .stroke(stroke)
+                .inner_margin(4.0)
+                .corner_radius(12)
+                .show(ui, |ui| {
+                    ui.vertical_centered_justified(|ui| {
+                        ui.label(self.builder.specification().name);
+                    });
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            self.draw_ports(
+                                ui,
+                                register,
+                                input,
+                                self.builder.specification().input_names,
+                                PortKind::Input
+                            );
+                        });
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |_| { }
+                        );
+                        ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
+                            self.draw_ports(
+                                ui,
+                                register,
+                                input,
+                                self.builder.specification().output_names,
+                                PortKind::Output
+                            );
+                        });
+                    });
+                });
 
-            response
+            ui.response()
         }).inner
     }
 

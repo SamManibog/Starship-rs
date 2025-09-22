@@ -8,6 +8,8 @@ pub mod circuits;
 
 pub mod constants;
 
+pub mod utils;
+
 mod patch_editor;
 
 mod connection_manager;

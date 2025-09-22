@@ -1,19 +1,18 @@
-use crate::circuit_id::{CircuitPortId, PortKind, CircuitId};
+use crate::circuit_id::{CircuitPortId, PortKind};
 use thiserror::Error;
 
-use CircuitInputState as Cis;
+use PortInputState as Pis;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CircuitInputState {
+pub enum PortInputState {
     NoInput,
-    PortClick(CircuitPortId),
+    Click(CircuitPortId),
     StartConnection(CircuitPortId),
     ProposeConnection(CircuitPortId, CircuitPortId),
     FinalizeConnection(CircuitPortId, CircuitPortId),
-    CircuitClick(CircuitId),
 }
 
-impl Default for Cis {
+impl Default for Pis {
     fn default() -> Self {
         Self::NoInput
     }
@@ -21,21 +20,21 @@ impl Default for Cis {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CircuitInput {
-    state: Cis
+    state: Pis
 }
 
 impl CircuitInput {
     pub fn new() -> Self {
-        Self { state: Cis::NoInput }
+        Self { state: Pis::NoInput }
     }
     
-    pub fn state(&self) -> &Cis {
+    pub fn state(&self) -> &Pis {
         &self.state
     }
 
     pub fn start(&mut self, id: CircuitPortId) -> Result<(), ConnectionProposalError> {
-        if self.state == Cis::NoInput {
-            self.state = Cis::StartConnection(id);
+        if self.state == Pis::NoInput {
+            self.state = Pis::StartConnection(id);
             Ok(())
         } else {
             Err(ConnectionProposalError::StartVariantError)
@@ -44,12 +43,12 @@ impl CircuitInput {
 
     pub fn propose(&mut self, id: CircuitPortId) -> Result<(), ConnectionProposalError> {
         match self.state {
-            Cis::StartConnection(start) => {
-                self.state = Cis::ProposeConnection(start, id);
+            Pis::StartConnection(start) => {
+                self.state = Pis::ProposeConnection(start, id);
                 Ok(())
             }
-            Cis::ProposeConnection(start, _) => {
-                self.state = Cis::ProposeConnection(start, id);
+            Pis::ProposeConnection(start, _) => {
+                self.state = Pis::ProposeConnection(start, id);
                 Ok(())
             }
             _ => Err(ConnectionProposalError::ProposeVariantError)
@@ -57,15 +56,15 @@ impl CircuitInput {
     }
 
     pub fn finalize(&mut self) -> Result<(), ConnectionProposalError> {
-        if let Cis::ProposeConnection(start, end) = self.state {
+        if let Pis::ProposeConnection(start, end) = self.state {
             if start.port_id.kind() == end.port_id.kind() {
                 self.clear();
                 Err(ConnectionProposalError::IoMismatch)
             } else if start.port_id.kind() == PortKind::Input {
-                self.state = Cis::FinalizeConnection(end, start);
+                self.state = Pis::FinalizeConnection(end, start);
                 Ok(())
             } else {
-                self.state = Cis::FinalizeConnection(start, end);
+                self.state = Pis::FinalizeConnection(start, end);
                 Ok(())
             }
         } else {
@@ -74,15 +73,11 @@ impl CircuitInput {
     }
 
     pub fn click(&mut self, id: CircuitPortId) {
-        self.state = Cis::PortClick(id);
-    }
-
-    pub fn circuit_click(&mut self, id: CircuitId) {
-        self.state = Cis::CircuitClick(id);
+        self.state = Pis::Click(id);
     }
 
     pub fn clear(&mut self) {
-        self.state = Cis::NoInput;
+        self.state = Pis::NoInput;
     }
 }
 
