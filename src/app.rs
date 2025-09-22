@@ -125,24 +125,30 @@ impl<'a> StarshipApp<'a> {
             .fixed_pos(position)
             .sense(Sense::click_and_drag())
             .show(ctx, |ui| {
-                Frame::new() .show(ui, |ui| {
-                    ui.label("Add a circuit...");
-                    ScrollArea::vertical().show(ui, |ui| {
-                        for builder in self.builders {
-                            if ui.button(&builder.display_name).clicked() {
-                                let id = self.add_circuit_builder(
-                                    (builder.instance)(),
-                                    position + self.cam_pos
-                                );
+                Frame::new()
+                    .fill(ctx.style().visuals.window_fill)
+                    .stroke(ctx.style().visuals.window_stroke)
+                    .inner_margin(4.0)
+                    .corner_radius(2)
+                    .show(ui, |ui| {
+                        ui.label("Add a circuit:");
+                        ui.separator();
+                        ScrollArea::vertical().show(ui, |ui| {
+                            for builder in self.builders {
+                                if ui.button(&builder.display_name).clicked() {
+                                    let id = self.add_circuit_builder(
+                                        (builder.instance)(),
+                                        position + self.cam_pos
+                                    );
+                                    self.inspector_focus = InspectorFocus::Circuit(id);
+                                }
+                            }
+                            if ui.button("Speaker").clicked() {
+                                let id = self.add_speaker(position + self.cam_pos);
                                 self.inspector_focus = InspectorFocus::Circuit(id);
                             }
-                        }
-                        if ui.button("Speaker").clicked() {
-                            let id = self.add_speaker(position + self.cam_pos);
-                            self.inspector_focus = InspectorFocus::Circuit(id);
-                        }
-                    });
-                })
+                        });
+                    })
             }).response;
 
         // If there was some click off of the ui, close it
@@ -332,3 +338,20 @@ impl eframe::App for StarshipApp<'_>{
         }
     }
 }
+
+// Todo:
+// - Add playback button/mode
+// - Add API for control circuits
+// - Add a border around the new circuit ui
+// - Clean up inspector ui
+// - Make ports highlighted when focused
+// - Make it so that when hovering a delete connection button,
+//   the connection/connected port is highlighted
+// - Add ability to zoom
+// - Resolve unbounded space to place circuits
+//   - Make a hard limit on circuit size
+//   - Add ability to select and move multiple circuits at once
+//   - Add abiility to jump to groups of circuits
+//   - Add coordinate display
+// - Add ability for builders to have descriptions
+
