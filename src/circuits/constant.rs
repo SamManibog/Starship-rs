@@ -1,4 +1,4 @@
-use crate::circuit::{CircuitBuilder, Circuit, CircuitSpecification};
+use crate::circuit::{CircuitBuilder, Circuit, ConnectionSpecification};
 
 #[derive(Debug, Clone)]
 pub struct ConstantBuilder {
@@ -7,10 +7,11 @@ pub struct ConstantBuilder {
 }
 
 impl ConstantBuilder {
-    const SPECIFICATION: CircuitSpecification = CircuitSpecification {
+    const SPECIFICATION: ConnectionSpecification = ConnectionSpecification {
         name: "Constant",
         output_names: &["Out"],
         input_names: &[],
+        size: egui::vec2(100.0, 100.0),
     };
 
     pub fn new() -> Self {
@@ -27,7 +28,7 @@ impl CircuitBuilder for ConstantBuilder {
         crate::utils::float_input(ui, &mut self.text, &mut self.value);
     }
 
-    fn specification(&self) -> &'static CircuitSpecification {
+    fn specification(&self) -> &'static ConnectionSpecification {
         &Self::SPECIFICATION
     }
 

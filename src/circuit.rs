@@ -1,16 +1,18 @@
 use std::collections::HashMap;
 
-use egui::{Color32, Ui, Label};
+use egui::{Color32, Ui, Label, Vec2};
 
 use crate::{
     circuit_id::{CircuitId, CircuitPortId, PortId, PortKind},
     circuit_input::CircuitInput,
 };
 
-pub struct CircuitSpecification {
+#[derive(Debug)]
+pub struct ConnectionSpecification {
     pub name: &'static str,
     pub input_names: &'static[&'static str],
-    pub output_names: &'static[&'static str]
+    pub output_names: &'static[&'static str],
+    pub size: Vec2,
 }
 
 pub struct CircuitBuilderSpecification {
@@ -42,7 +44,7 @@ pub trait CircuitBuilder: std::fmt::Debug {
     }
 
     ///gets the specification for the circuit
-    fn specification(&self) -> &'static CircuitSpecification;
+    fn specification(&self) -> &'static ConnectionSpecification;
 
     ///Build the associated circuit
     fn build(&self) -> Box<dyn Circuit>;
@@ -73,19 +75,17 @@ pub trait Circuit: std::fmt::Debug {
 
 ///Handles the ui used to build a circuit
 #[derive(Debug)]
-pub struct CircuitBuilderFrontend {
+pub struct ConnectionBuilder {
     id: CircuitId,
-    builder: Box<dyn CircuitBuilder>,
+    specification: &'static ConnectionSpecification,
 }
 
-impl CircuitBuilderFrontend {
-    pub const DEFAULT_DIMENSIONS: egui::Vec2 = egui::vec2(200.0, 200.0);
-
+impl ConnectionBuilder {
     ///Creates a new instance
-    pub fn new(id: CircuitId, builder: Box<dyn CircuitBuilder>) -> Self {
+    pub fn new(id: CircuitId, specification: &'static ConnectionSpecification) -> Self {
         Self {
             id,
-            builder,
+            specification,
         }
     }
 
@@ -94,14 +94,9 @@ impl CircuitBuilderFrontend {
         self.id
     }
 
-    ///Gets the associated builder
-    pub fn builder(&self) -> &Box<dyn CircuitBuilder> {
-        &self.builder
-    }
-
-    ///Gets the associated builder as mutable
-    pub fn builder_mut(&mut self) -> &mut Box<dyn CircuitBuilder> {
-        &mut self.builder
+    ///Gets the associated specification
+    pub fn specification(&self) -> &'static ConnectionSpecification {
+        self.specification
     }
 
     pub fn show(
@@ -116,7 +111,7 @@ impl CircuitBuilderFrontend {
             .sense(egui::Sense::all())
             .max_rect(egui::Rect::from_min_size(
                 position,
-                self.builder.request_size().unwrap_or(Self::DEFAULT_DIMENSIONS)
+                self.specification.size
             ));
 
         ui.scope_builder(ui_builder, |ui| {
@@ -131,7 +126,7 @@ impl CircuitBuilderFrontend {
                 .corner_radius(12)
                 .show(ui, |ui| {
                     ui.vertical_centered_justified(|ui| {
-                        ui.label(self.builder.specification().name);
+                        ui.label(self.specification.name);
                     });
                     ui.separator();
                     ui.horizontal(|ui| {
@@ -140,7 +135,7 @@ impl CircuitBuilderFrontend {
                                 ui,
                                 register,
                                 input,
-                                self.builder.specification().input_names,
+                                self.specification.input_names,
                                 PortKind::Input
                             );
                         });
@@ -153,7 +148,7 @@ impl CircuitBuilderFrontend {
                                 ui,
                                 register,
                                 input,
-                                self.builder.specification().output_names,
+                                self.specification.output_names,
                                 PortKind::Output
                             );
                         });
@@ -189,7 +184,7 @@ impl CircuitBuilderFrontend {
 
 }
 
-impl std::hash::Hash for CircuitBuilderFrontend {
+impl std::hash::Hash for ConnectionBuilder {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state)
     }

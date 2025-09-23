@@ -1,4 +1,4 @@
-use crate::circuit::{CircuitBuilder, Circuit, CircuitSpecification};
+use crate::circuit::{CircuitBuilder, Circuit, ConnectionSpecification};
 
 #[derive(Debug, Clone)]
 pub struct SwitchBuilder {
@@ -7,10 +7,11 @@ pub struct SwitchBuilder {
 }
 
 impl SwitchBuilder {
-    const SPECIFICATION: CircuitSpecification = CircuitSpecification {
+    const SPECIFICATION: ConnectionSpecification = ConnectionSpecification {
         name: "Switch",
         output_names: &["Out"],
         input_names: &["In"],
+        size: egui::vec2(100.0, 100.0),
     };
 
     pub fn new() -> Self {
@@ -27,7 +28,7 @@ impl CircuitBuilder for SwitchBuilder {
         todo!()
     }
 
-    fn specification(&self) -> &'static CircuitSpecification {
+    fn specification(&self) -> &'static ConnectionSpecification {
         &Self::SPECIFICATION
     }
 

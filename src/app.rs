@@ -6,7 +6,7 @@ use egui::{
 };
 
 use crate::{
-    circuit::{CircuitBuilder, CircuitBuilderFrontend, CircuitBuilderSpecification}, circuit_id::{ CircuitId, CircuitPortId, ConnectionId, PortKind }, circuit_input::{ CircuitInput, PortInputState }, circuits::SpeakerBuilder, connection_manager::ConnectionManager
+    circuit::{CircuitBuilder, CircuitBuilderSpecification, ConnectionBuilder}, circuit_id::{ CircuitId, CircuitPortId, ConnectionId, PortKind }, circuit_input::{ CircuitInput, PortInputState }, circuits::SpeakerBuilder, connection_manager::ConnectionManager
 };
 
 #[derive(Debug)]
@@ -34,8 +34,9 @@ impl Default for CentralInput {
 pub struct StarshipApp<'a> {
     cam_pos: egui::Vec2,
     builder_ids: Vec<CircuitId>,
-    builder_map: HashMap<CircuitId, CircuitBuilderFrontend>,
-    builder_pos_map: HashMap<CircuitId, Pos2>,
+    builder_map: HashMap<CircuitId, Box<dyn CircuitBuilder>>,
+    connection_builder_map: HashMap<CircuitId, ConnectionBuilder>,
+    connection_builder_pos: HashMap<CircuitId, Pos2>,
     speakers: HashSet<CircuitId>,
     connections: ConnectionManager,
     circuit_input: CircuitInput,
@@ -58,8 +59,9 @@ impl<'a> StarshipApp<'a> {
         Self {
             cam_pos: egui::vec2(0.0, 0.0),
             builder_ids: vec![],
-        	builder_map: HashMap::new(),
-            builder_pos_map: HashMap::new(),
+            builder_map: HashMap::new(),
+        	connection_builder_map: HashMap::new(),
+            connection_builder_pos: HashMap::new(),
             speakers: HashSet::new(),
             connections: Default::default(),
             circuit_input: Default::default(),
@@ -87,10 +89,11 @@ impl<'a> StarshipApp<'a> {
         position: Pos2
     ) -> CircuitId {
         let id = unsafe { CircuitId::new() };
-        let frontend = CircuitBuilderFrontend::new(id, circuit_builder);
+        let frontend = ConnectionBuilder::new(id, circuit_builder.specification());
+        self.builder_map.insert(frontend.id(), circuit_builder);
         self.builder_ids.push(frontend.id());
-        self.builder_pos_map.insert(frontend.id(), position);
-        self.builder_map.insert(frontend.id(), frontend);
+        self.connection_builder_pos.insert(frontend.id(), position);
+        self.connection_builder_map.insert(frontend.id(), frontend);
         id
     }
 
@@ -113,8 +116,9 @@ impl<'a> StarshipApp<'a> {
 
         //delete builder
         self.builder_ids.retain(|entry| *entry != id);
-        self.builder_pos_map.remove(&id);
         self.builder_map.remove(&id);
+        self.connection_builder_pos.remove(&id);
+        self.connection_builder_map.remove(&id);
         self.speakers.remove(&id);
         self.connections.remove_circuit(id);
     }
@@ -164,7 +168,7 @@ impl<'a> StarshipApp<'a> {
     fn draw_inspector(&mut self, ui: &mut Ui) {
         if let InspectorFocus::Port(id) = self.inspector_focus {
             {
-                let spec = self.builder_map[&id.circuit_id()].builder().specification();
+                let spec = self.connection_builder_map[&id.circuit_id()].specification();
                 let port_name = match id.port_id.kind() {
                     PortKind::Input => spec.input_names[id.port_id.index()],
                     PortKind::Output => spec.output_names[id.port_id.index()],
@@ -178,7 +182,7 @@ impl<'a> StarshipApp<'a> {
             let mut remove_connection = None;
             if let Some(connected) = connected_raw {
                 for port in connected {
-                    let spec = self.builder_map[&port.circuit_id()].builder().specification();
+                    let spec = self.connection_builder_map[&port.circuit_id()].specification();
                     let port_name = match port.port_id.kind() {
                         PortKind::Input => spec.input_names[port.port_id.index()],
                         PortKind::Output => spec.output_names[port.port_id.index()],
@@ -200,7 +204,7 @@ impl<'a> StarshipApp<'a> {
                 ));
             }
         } else if let InspectorFocus::Circuit(id) = self.inspector_focus {
-            let name = self.builder_map[&id].builder().specification().name;
+            let name = self.connection_builder_map[&id].specification().name;
             let title = RichText::new(name).text_style(TextStyle::Heading);
             ui.horizontal(|ui| {
                 ui.label(title);
@@ -209,8 +213,8 @@ impl<'a> StarshipApp<'a> {
                 }
             });
             ui.separator();
-            if let Some(builder_frontend) = self.builder_map.get_mut(&id) {
-                builder_frontend.builder_mut().show(ui);
+            if let Some(builder) = self.builder_map.get_mut(&id) {
+                builder.show(ui);
             }
 
         } else {
@@ -267,8 +271,8 @@ impl eframe::App for StarshipApp<'_>{
                         InspectorFocus::Circuit(circuit) => circuit == *id,
                         InspectorFocus::None => false
                     };
-                    let response = self.builder_map.get_mut(id).unwrap().show(
-                        self.builder_pos_map[id] - self.cam_pos,
+                    let response = self.connection_builder_map.get_mut(id).unwrap().show(
+                        self.connection_builder_pos[id] - self.cam_pos,
                         ui,
                         &mut port_positions,
                         &mut self.circuit_input,
@@ -339,7 +343,7 @@ impl eframe::App for StarshipApp<'_>{
             });
 
         match central_response.inner {
-            CentralInput::ModuleDrag(id, delta) => { *self.builder_pos_map.get_mut(&id).unwrap() += delta; }
+            CentralInput::ModuleDrag(id, delta) => { *self.connection_builder_pos.get_mut(&id).unwrap() += delta; }
             CentralInput::SceneDrag(delta) => { self.cam_pos -= delta; }
             CentralInput::SceneRightClick(pos) => { self.new_circuit_ui = Some(pos); }
             CentralInput::NoInput => {}

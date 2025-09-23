@@ -1,14 +1,15 @@
-use crate::circuit::{CircuitBuilder, Circuit, CircuitSpecification};
+use crate::circuit::{CircuitBuilder, Circuit, ConnectionSpecification};
 
 #[derive(Debug, Clone)]
 pub struct SineBuilder {
 }
 
 impl SineBuilder {
-    const SPECIFICATION: CircuitSpecification = CircuitSpecification {
+    const SPECIFICATION: ConnectionSpecification = ConnectionSpecification {
         name: "Sinewave",
         input_names: &["Amplitude", "Frequency"],
         output_names: &["Out"],
+        size: egui::vec2(200.0, 200.0),
     };
 
     pub fn new() -> Self {
@@ -17,7 +18,7 @@ impl SineBuilder {
 }
 
 impl CircuitBuilder for SineBuilder {
-    fn specification(&self) -> &'static CircuitSpecification {
+    fn specification(&self) -> &'static ConnectionSpecification {
         &Self::SPECIFICATION
     }
 
