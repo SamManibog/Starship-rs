@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use egui::{Color32, Ui};
+use egui::{Color32, Ui, Label};
 
 use crate::{
     circuit_id::{CircuitId, CircuitPortId, PortId, PortKind},
@@ -37,7 +37,9 @@ impl std::fmt::Debug for CircuitBuilderSpecification {
 pub trait CircuitBuilder: std::fmt::Debug {
     ///Draw the circuit UI to the screen. Passed to egui's show function.
     ///Do not attempt to handle circuit connections in this step.
-    fn show(&mut self, ui: &mut egui::Ui) { let _ = ui; }
+    fn show(&mut self, ui: &mut egui::Ui) {
+        ui.add(Label::new("This circuit is not configurable.").wrap());
+    }
 
     ///gets the specification for the circuit
     fn specification(&self) -> &'static CircuitSpecification;
@@ -95,6 +97,11 @@ impl CircuitBuilderFrontend {
     ///Gets the associated builder
     pub fn builder(&self) -> &Box<dyn CircuitBuilder> {
         &self.builder
+    }
+
+    ///Gets the associated builder as mutable
+    pub fn builder_mut(&mut self) -> &mut Box<dyn CircuitBuilder> {
+        &mut self.builder
     }
 
     pub fn show(
@@ -211,6 +218,9 @@ impl<'a> PortUi<'a> {
     ///Color of the port when connected
     pub const FILLED_COLOR: egui::Color32 = egui::Color32::BLACK;
 
+    ///Color of the port when hovered
+    pub const HOVERED_COLOR: egui::Color32 = egui::Color32::WHITE;
+
     pub fn new(id: CircuitPortId, connection: &'a mut CircuitInput) -> Self {
         Self {
             id,
@@ -226,6 +236,9 @@ impl egui::Widget for PortUi<'_> {
             egui::Sense::click_and_drag()
         );
         let center = response.rect.center();
+        if response.hovered() {
+            painter.circle_filled(center, Self::FILLED_RADIUS, Self::HOVERED_COLOR);
+        }
         painter.circle_filled(center, Self::UNFILLED_RADIUS, Self::UNFILLED_COLOR);
         if response.drag_started() {
             response.dnd_set_drag_payload::<CircuitPortId>(self.id);

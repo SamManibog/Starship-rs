@@ -2,7 +2,7 @@ use std::{collections::{HashMap, HashSet}, sync::Arc};
 
 use eframe;
 use egui::{
-    Area, CentralPanel, Color32, Context, Frame, Id, MenuBar, Pos2, Response, ScrollArea, Sense, SidePanel, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
+    Area, CentralPanel, Color32, Context, Frame, Id, Label, MenuBar, Pos2, Response, RichText, ScrollArea, Sense, SidePanel, TextStyle, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
 };
 
 use crate::{
@@ -131,7 +131,7 @@ impl<'a> StarshipApp<'a> {
                     .inner_margin(4.0)
                     .corner_radius(2)
                     .show(ui, |ui| {
-                        ui.label("Add a circuit:");
+                        ui.label("Add a circuit");
                         ui.separator();
                         ScrollArea::vertical().show(ui, |ui| {
                             for builder in self.builders {
@@ -169,12 +169,11 @@ impl<'a> StarshipApp<'a> {
                     PortKind::Input => spec.input_names[id.port_id.index()],
                     PortKind::Output => spec.output_names[id.port_id.index()],
                 };
-                ui.label(format!(
-                    "Circuit: {}, Port: {}", 
-                    spec.name,
-                    port_name
-                ));
+                let title = RichText::new(port_name).text_style(TextStyle::Heading);
+                ui.add(Label::new(title).wrap());
+                ui.add(Label::new(spec.name).wrap());
             }
+            ui.separator();
             let connected_raw = self.connections.query_connected(id);
             let mut remove_connection = None;
             if let Some(connected) = connected_raw {
@@ -201,11 +200,23 @@ impl<'a> StarshipApp<'a> {
                 ));
             }
         } else if let InspectorFocus::Circuit(id) = self.inspector_focus {
-            if ui.button(format!("Delete {:?}", id)).clicked() {
-                self.remove_circuit_builder(id);
+            let name = self.builder_map[&id].builder().specification().name;
+            let title = RichText::new(name).text_style(TextStyle::Heading);
+            ui.horizontal(|ui| {
+                ui.label(title);
+                if ui.small_button("X").clicked() {
+                    self.remove_circuit_builder(id);
+                }
+            });
+            ui.separator();
+            if let Some(builder_frontend) = self.builder_map.get_mut(&id) {
+                builder_frontend.builder_mut().show(ui);
             }
+
         } else {
-            ui.label("Click a port or circuit to focus it.");
+            let tip = Label::new("Click a port or circuit to focus it. Right click in the central area to add a circuit.")
+                .wrap();
+            ui.add(tip);
         }
         ui.separator();
     }
@@ -227,7 +238,8 @@ impl eframe::App for StarshipApp<'_>{
         });
 
         SidePanel::right("right_panel")
-            .max_width(400.0)
+            .max_width(300.0)
+            .min_width(200.0)
             .show(ctx, |ui| {
                 self.draw_inspector(ui);
             });
@@ -342,7 +354,6 @@ impl eframe::App for StarshipApp<'_>{
 // Todo:
 // - Add playback button/mode
 // - Add API for control circuits
-// - Add a border around the new circuit ui
 // - Clean up inspector ui
 // - Make ports highlighted when focused
 // - Make it so that when hovering a delete connection button,
