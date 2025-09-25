@@ -15,6 +15,42 @@ pub struct ConnectionSpecification {
     pub size: Vec2,
 }
 
+impl ConnectionSpecification {
+    /// Returns an iterator over input port ids
+    pub fn input_port_id_iter(&self) -> impl Iterator<Item = PortId> {
+        (0..self.input_names.len())
+        	.into_iter()
+            .map(|index| PortId::new(index, PortKind::Input))
+    }
+
+    /// Returns an iterator over output port ids
+    pub fn output_port_id_iter(&self) -> impl Iterator<Item = PortId> {
+        (0..self.output_names.len())
+        	.into_iter()
+            .map(|index| PortId::new(index, PortKind::Output))
+    }
+
+    /// Returns an iterator over all port ids
+    pub fn port_id_iter(&self) -> impl Iterator<Item = PortId> {
+        self.output_port_id_iter().chain(self.input_port_id_iter())
+    }
+
+    /// Returns an iterator over all circuit input port ids
+    pub fn circuit_input_port_id_iter(&self, circuit: CircuitId) -> impl Iterator<Item = CircuitPortId> {
+        self.input_port_id_iter().map::<CircuitPortId, _>(move |id| CircuitPortId::new(circuit, id))
+    }
+
+    /// Returns an iterator over all circuit output port ids
+    pub fn circuit_output_port_id_iter(&self, circuit: CircuitId) -> impl Iterator<Item = CircuitPortId> {
+        self.output_port_id_iter().map::<CircuitPortId, _>(move |id| CircuitPortId::new(circuit, id))
+    }
+
+    /// Returns an iterator over all circuit port ids
+    pub fn circuit_port_id_iter(&self, circuit: CircuitId) -> impl Iterator<Item = CircuitPortId> {
+        self.port_id_iter().map::<CircuitPortId, _>(move |id| CircuitPortId::new(circuit, id))
+    }
+}
+
 pub struct CircuitBuilderSpecification {
     pub display_name: String,
     pub instance: Box<dyn Fn()->Box<dyn CircuitBuilder>>
@@ -68,7 +104,7 @@ pub trait ControlCircuitBuilder: CircuitBuilder {
 }
 
 ///A circuit that processes signals into outputs
-pub trait Circuit: std::fmt::Debug {
+pub trait Circuit: std::fmt::Debug + Send {
     ///Handles a vector of signals to produce some output signals.
     fn operate(&mut self, inputs: &[f32], outputs: &mut[f32]);
 }

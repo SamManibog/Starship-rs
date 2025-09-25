@@ -1,12 +1,13 @@
 use std::{collections::{HashMap, HashSet}, sync::Arc};
 
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe;
 use egui::{
-    Area, CentralPanel, Color32, Context, Frame, Id, Label, MenuBar, Pos2, Response, RichText, ScrollArea, Sense, SidePanel, TextStyle, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
+    Align, Area, CentralPanel, Color32, Context, Frame, Id, Label, MenuBar, Pos2, Response, RichText, ScrollArea, Sense, SidePanel, TextStyle, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
 };
 
 use crate::{
-    circuit::{CircuitBuilder, CircuitBuilderSpecification, ConnectionBuilder}, circuit_id::{ CircuitId, CircuitPortId, ConnectionId, PortKind }, circuit_input::{ CircuitInput, PortInputState }, circuits::SpeakerBuilder, connection_manager::ConnectionManager
+    circuit::{CircuitBuilder, CircuitBuilderSpecification, ConnectionBuilder}, circuit_id::{ CircuitId, CircuitPortId, ConnectionId, PortKind }, circuit_input::{ CircuitInput, PortInputState }, circuits::SpeakerBuilder, connection_manager::ConnectionManager, playback::PlaybackBackendData
 };
 
 #[derive(Debug)]
@@ -24,6 +25,14 @@ enum InspectorFocus {
     Circuit(CircuitId),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum AppMode {
+    Editor,
+    StartPlayback,
+    Playback,
+    EndPlayback,
+}
+
 impl Default for CentralInput {
     fn default() -> Self {
         Self::NoInput
@@ -31,44 +40,91 @@ impl Default for CentralInput {
 }
 
 #[derive(Debug)]
-pub struct StarshipApp<'a> {
-    cam_pos: egui::Vec2,
+pub struct App<'a> {
+    // circuit functionality
+    builders: &'a[CircuitBuilderSpecification],
     builder_ids: Vec<CircuitId>,
     builder_map: HashMap<CircuitId, Box<dyn CircuitBuilder>>,
     connection_builder_map: HashMap<CircuitId, ConnectionBuilder>,
     connection_builder_pos: HashMap<CircuitId, Pos2>,
     speakers: HashSet<CircuitId>,
     connections: ConnectionManager,
+
+    // editor ui
+    cam_pos: egui::Vec2,
     circuit_input: CircuitInput,
     inspector_focus: InspectorFocus,
-    builders: &'a[CircuitBuilderSpecification],
     new_circuit_ui: Option<Pos2>,
+
+    // playback ui
+    
+    // misc
+    mode: AppMode,
 }
 
-impl<'a> StarshipApp<'a> {
+impl<'a> App<'a> {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>, builders: &'a[CircuitBuilderSpecification]) -> Self {
-        // This is also where you cjn customize the look and feel of egui using
-        // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
+        // Customize egui style
         cc.egui_ctx.set_style({
             let mut style = egui::Style::default();
             style.wrap_mode = Some(TextWrapMode::Extend);
             style.interaction.selectable_labels = false;
             Arc::new(style)
         });
+
+        // Return initialized state
         Self {
-            cam_pos: egui::vec2(0.0, 0.0),
+            builders,
             builder_ids: vec![],
             builder_map: HashMap::new(),
         	connection_builder_map: HashMap::new(),
             connection_builder_pos: HashMap::new(),
             speakers: HashSet::new(),
             connections: Default::default(),
+            cam_pos: egui::vec2(0.0, 0.0),
             circuit_input: Default::default(),
             inspector_focus: InspectorFocus::None,
-            builders,
             new_circuit_ui: None,
+            mode: AppMode::Editor,
         }
+    }
+
+    pub fn begin_playback(&mut self) {
+        println!("begin playback");
+        //setup backend data
+        let mut backend_data = PlaybackBackendData::new(
+            &self.builder_ids,
+            &self.builder_map,
+            &self.connections,
+            &self.speakers,
+            crate::constants::SAMPLE_MULTIPLIER
+        );
+        for _ in 0..25 {
+            println!("{}",backend_data.update());
+        }
+        /*
+        println!("setup audio");
+
+        //setup audio
+        let host = cpal::default_host();
+        let device = host.default_output_device().expect("No output device available.");
+        let default_config = device.default_output_config().expect("Default config not found.");
+
+        let error_callback = |err| eprintln!("an error occurred on the output audio stream: {}", err);
+
+        let stream = backend_data.into_output_stream(
+            &device,
+            default_config,
+            error_callback,
+            None
+        );
+        println!("play audio");
+        let _ = stream.unwrap().play();
+*/
+    }
+
+    pub fn end_playback(&mut self) {
     }
 
     /// Adds a new speaker at the given position
@@ -178,7 +234,7 @@ impl<'a> StarshipApp<'a> {
                 ui.add(Label::new(spec.name).wrap());
             }
             ui.separator();
-            let connected_raw = self.connections.query_connected(id);
+            let connected_raw = self.connections.port_query_ports(id);
             let mut remove_connection = None;
             if let Some(connected) = connected_raw {
                 for port in connected {
@@ -225,19 +281,24 @@ impl<'a> StarshipApp<'a> {
         ui.separator();
     }
 
-}
-
-impl eframe::App for StarshipApp<'_>{
-    /// Called each time the UI needs repainting, which may be many times per second.
-    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+    fn draw_editor_mode(&mut self, ctx: &Context) {
         TopBottomPanel::top("top_panel").show(ctx, |ui| {
             MenuBar::new().ui(ui, |ui| {
                 if ui.button("Quit").clicked() {
                     ctx.send_viewport_cmd(ViewportCommand::Close);
                 }
                 ui.add_space(16.0);
-
                 egui::warn_if_debug_build(ui);
+                
+                //add play button to far right edge
+                ui.with_layout(egui::Layout::right_to_left(Align::Max),
+                    |ui| {
+                        if ui.button("Play").clicked() {
+                            self.mode = AppMode::StartPlayback;
+                        }
+                    }
+                );
+
             });
         });
 
@@ -353,6 +414,51 @@ impl eframe::App for StarshipApp<'_>{
             self.draw_new_circuit_ui(ctx, pos, old_new_circuit_ui);
         }
     }
+
+    fn draw_playback_mode(&mut self, ctx: &Context) {
+        TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            MenuBar::new().ui(ui, |ui| {
+                if ui.button("Quit").clicked() {
+                    ctx.send_viewport_cmd(ViewportCommand::Close);
+                }
+                ui.add_space(16.0);
+
+                egui::warn_if_debug_build(ui);
+
+                //add stop button to far right edge
+                ui.with_layout(egui::Layout::right_to_left(Align::Max),
+                    |ui| {
+                        if ui.button("Stop").clicked() {
+                            self.end_playback();
+                            self.mode = AppMode::EndPlayback;
+                        }
+                    }
+                );
+            });
+        });
+
+    }
+}
+
+impl eframe::App for App<'_>{
+    /// Called each time the UI needs repainting, which may be many times per second.
+    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+        // handle transition states
+        if self.mode == AppMode::StartPlayback {
+            self.begin_playback();
+            self.mode = AppMode::Playback;
+        } else if self.mode == AppMode::EndPlayback {
+            self.end_playback();
+            self.mode = AppMode::Editor;
+        }
+        
+        // run main states
+        match self.mode {
+            AppMode::Editor => self.draw_editor_mode(ctx),
+            AppMode::Playback => self.draw_playback_mode(ctx),
+            _ => unreachable!()
+        }
+    }
 }
 
 // Todo:
@@ -369,4 +475,5 @@ impl eframe::App for StarshipApp<'_>{
 //   - Add abiility to jump to groups of circuits
 //   - Add coordinate display
 // - Add ability for builders to have descriptions
+// - Add safety, error checking to unwrap methods
 

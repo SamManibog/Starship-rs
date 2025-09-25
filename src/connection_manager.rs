@@ -195,14 +195,22 @@ impl ConnectionManager {
     ///Does not remove the connection from the list of connections
     fn wipe_connection_data(&mut self, connection: ConnectionId, color: ColorIndex) {
         self.connection_set.remove(&connection);
+
         self.connection_map
             .get_mut(&connection.src())
             .unwrap()
             .retain(|port| *port != connection.dst());
+        if self.connection_map.get(&connection.src()).unwrap().len() <= 0 {
+            self.connection_map.remove(&connection.src());
+        }
+
         self.connection_map
             .get_mut(&connection.dst())
             .unwrap()
             .retain(|port| *port != connection.src());
+        if self.connection_map.get(&connection.dst()).unwrap().len() <= 0 {
+            self.connection_map.remove(&connection.dst());
+        }
 
         //remove color
         self.counter_map
@@ -266,8 +274,19 @@ impl ConnectionManager {
         }
     }
 
-    ///Returns a slice of all connected ports
-    pub fn query_connected(&self, port: CircuitPortId) -> Option<&[CircuitPortId]> {
+    /// Returns a vec with all connections to the circuit
+    pub fn circuit_query_connections(&self, circuit: CircuitId) -> Vec<ConnectionId> {
+        let mut output = vec![];
+        for (id, _) in &self.connections {
+            if id.dst().circuit_id == circuit  || id.src().circuit_id == circuit {
+                output.push(*id);
+            }
+        }
+        output
+    }
+
+    /// Returns a slice of all ports connected to the given port
+    pub fn port_query_ports(&self, port: CircuitPortId) -> Option<&[CircuitPortId]> {
         return match self.connection_map.get(&port) {
             Some(vec) => Some(vec.as_slice()),
             None => None

@@ -22,7 +22,7 @@ fn main() -> eframe::Result {
         native_options,
         Box::new(|cc| {
             Ok(Box::new(
-                starship_rust::app::StarshipApp::new(cc, &builders)
+                starship_rust::app::App::new(cc, &builders)
             ))
         })
     )
