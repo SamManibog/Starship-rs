@@ -1,24 +1,23 @@
 use crate::circuit::{CircuitBuilder, Circuit, ConnectionSpecification};
 
 #[derive(Debug, Clone)]
-pub struct SpeakerBuilder {
-}
+pub struct RouterBuilder {}
 
-impl SpeakerBuilder {
+impl RouterBuilder {
     const SPECIFICATION: ConnectionSpecification = ConnectionSpecification {
-        output_names: &[],
         input_names: &["In"],
-        size: egui::vec2(100.0, 100.0),
+        output_names: &["Out"],
+        size: egui::vec2(100.0, 70.0),
     };
 
-    const NAME: &'static str = "Speaker";
+    const NAME: &'static str = "Router";
 
     pub fn new() -> Self {
-        Self{ }
+        Self{}
     }
 }
 
-impl CircuitBuilder for SpeakerBuilder {
+impl CircuitBuilder for RouterBuilder {
     fn name(&self) -> &str {
         Self::NAME
     }
@@ -28,10 +27,15 @@ impl CircuitBuilder for SpeakerBuilder {
     }
 
     fn build(&self) -> Box<dyn Circuit> {
-        panic!("Speakers cannot be directly built.");
+        Box::new(Router::default())
     }
+}
 
-    fn request_size(&self) -> Option<egui::Vec2> {
-        Some(egui::vec2(100.0, 70.0))
+#[derive(Debug, Default)]
+pub struct Router {}
+
+impl Circuit for Router {
+    fn operate(&mut self, inputs: &[f32], outputs: &mut[f32], _: f32) {
+        outputs[0] = inputs[0];
     }
 }

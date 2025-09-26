@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet}, sync::Arc};
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, Stream};
 use eframe;
 use egui::{
     Align, Area, CentralPanel, Color32, Context, Frame, Id, Label, MenuBar, Pos2, Response, RichText, ScrollArea, Sense, SidePanel, TextStyle, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
@@ -39,7 +39,6 @@ impl Default for CentralInput {
     }
 }
 
-#[derive(Debug)]
 pub struct App<'a> {
     // circuit functionality
     builders: &'a[CircuitBuilderSpecification],
@@ -56,7 +55,8 @@ pub struct App<'a> {
     inspector_focus: InspectorFocus,
     new_circuit_ui: Option<Pos2>,
 
-    // playback ui
+    // playback data
+    stream: Option<Stream>,
     
     // misc
     mode: AppMode,
@@ -86,6 +86,7 @@ impl<'a> App<'a> {
             circuit_input: Default::default(),
             inspector_focus: InspectorFocus::None,
             new_circuit_ui: None,
+            stream: None,
             mode: AppMode::Editor,
         }
     }
@@ -93,38 +94,57 @@ impl<'a> App<'a> {
     pub fn begin_playback(&mut self) {
         println!("begin playback");
         //setup backend data
-        let mut backend_data = PlaybackBackendData::new(
+        let backend_data = PlaybackBackendData::new(
             &self.builder_ids,
             &self.builder_map,
             &self.connections,
             &self.speakers,
             crate::constants::SAMPLE_MULTIPLIER
         );
-        for _ in 0..25 {
-            println!("{}",backend_data.update());
-        }
+
         /*
+        let mut vec = [0.0; 25];
+        let mut cb = backend_data.stream_data_callback();
+        let info = cpal::OutputCallbackInfo::new(cpal::OutputStreamTimestamp {
+            playback: StreamInstant::new(0, 0),
+            callback: StreamInstant::new(0, 0)
+        });
+        cb(&mut vec, &info);
+        println!("vec: {:?}", vec);
+
         println!("setup audio");
+*/
 
         //setup audio
         let host = cpal::default_host();
         let device = host.default_output_device().expect("No output device available.");
         let default_config = device.default_output_config().expect("Default config not found.");
 
+        println!(
+            "Running on '{}' with sample format {}.",
+            device.name().unwrap_or("N/A".to_string()),
+            device.default_output_config().unwrap().sample_format()
+        );
+
         let error_callback = |err| eprintln!("an error occurred on the output audio stream: {}", err);
+
+        let sample_rate = default_config.sample_rate();
+        let sample_format = default_config.sample_format();
 
         let stream = backend_data.into_output_stream(
             &device,
-            default_config,
+            &default_config.into(),
             error_callback,
-            None
-        );
-        println!("play audio");
-        let _ = stream.unwrap().play();
-*/
+            None,
+            sample_format,
+            sample_rate
+        ).expect("Audio stream could not be built.");
+        let _ = stream.play();
+        self.stream = Some(stream);
     }
 
     pub fn end_playback(&mut self) {
+        self.stream = None;
     }
 
     /// Adds a new speaker at the given position
@@ -151,6 +171,11 @@ impl<'a> App<'a> {
         self.connection_builder_pos.insert(frontend.id(), position);
         self.connection_builder_map.insert(frontend.id(), frontend);
         id
+    }
+
+    /// Adds a connection for the two given circuit ports
+    pub fn add_connection(&mut self, src: CircuitPortId, dst: CircuitPortId) {
+        self.connections.add_connection(ConnectionId::new(src, dst));
     }
 
     /// Removes the circuit with the given id
@@ -224,6 +249,7 @@ impl<'a> App<'a> {
     fn draw_inspector(&mut self, ui: &mut Ui) {
         if let InspectorFocus::Port(id) = self.inspector_focus {
             {
+                let name = self.builder_map[&id.circuit_id()].name();
                 let spec = self.connection_builder_map[&id.circuit_id()].specification();
                 let port_name = match id.port_id.kind() {
                     PortKind::Input => spec.input_names[id.port_id.index()],
@@ -231,13 +257,14 @@ impl<'a> App<'a> {
                 };
                 let title = RichText::new(port_name).text_style(TextStyle::Heading);
                 ui.add(Label::new(title).wrap());
-                ui.add(Label::new(spec.name).wrap());
+                ui.add(Label::new(name).wrap());
             }
             ui.separator();
             let connected_raw = self.connections.port_query_ports(id);
             let mut remove_connection = None;
             if let Some(connected) = connected_raw {
                 for port in connected {
+                    let circuit_name = self.builder_map[&id.circuit_id()].name();
                     let spec = self.connection_builder_map[&port.circuit_id()].specification();
                     let port_name = match port.port_id.kind() {
                         PortKind::Input => spec.input_names[port.port_id.index()],
@@ -245,7 +272,7 @@ impl<'a> App<'a> {
                     };
                     let button_text = format!(
                         "Circuit: {}, Port: {}", 
-                        spec.name,
+                        circuit_name,
                         port_name
                     );
                     if ui.button(button_text).clicked() {
@@ -260,7 +287,7 @@ impl<'a> App<'a> {
                 ));
             }
         } else if let InspectorFocus::Circuit(id) = self.inspector_focus {
-            let name = self.connection_builder_map[&id].specification().name;
+            let name = self.builder_map[&id].name();
             let title = RichText::new(name).text_style(TextStyle::Heading);
             ui.horizontal(|ui| {
                 ui.label(title);
@@ -337,7 +364,8 @@ impl<'a> App<'a> {
                         ui,
                         &mut port_positions,
                         &mut self.circuit_input,
-                        highlight
+                        highlight,
+                        self.builder_map[&id].name()
                     );
                     if response.dragged() || response.clicked() {
                         self.inspector_focus = InspectorFocus::Circuit(*id);
@@ -380,7 +408,7 @@ impl<'a> App<'a> {
                         }
 
                     } else if let PortInputState::FinalizeConnection(start, end) = *self.circuit_input.state() {
-                        self.connections.add_connection(ConnectionId::new(start, end));
+                        self.add_connection(start, end);
                         self.circuit_input.clear();
                     } else if let PortInputState::Click(id) = *self.circuit_input.state() {
                         self.inspector_focus = InspectorFocus::Port(id);
@@ -451,7 +479,7 @@ impl eframe::App for App<'_>{
             self.end_playback();
             self.mode = AppMode::Editor;
         }
-        
+
         // run main states
         match self.mode {
             AppMode::Editor => self.draw_editor_mode(ctx),
@@ -462,7 +490,7 @@ impl eframe::App for App<'_>{
 }
 
 // Todo:
-// - Add playback button/mode
+// - Make things attempt to save when focus lost
 // - Add API for control circuits
 // - Clean up inspector ui
 // - Make ports highlighted when focused
@@ -470,10 +498,11 @@ impl eframe::App for App<'_>{
 //   the connection/connected port is highlighted
 // - Add ability to zoom
 // - Resolve unbounded space to place circuits
-//   - Make a hard limit on circuit size
+//   - Make a hard limit on world size
 //   - Add ability to select and move multiple circuits at once
 //   - Add abiility to jump to groups of circuits
 //   - Add coordinate display
 // - Add ability for builders to have descriptions
 // - Add safety, error checking to unwrap methods
+// - Add flags field to circuit builder specification, so that they may be organized
 

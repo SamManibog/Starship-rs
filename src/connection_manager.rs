@@ -25,12 +25,12 @@ trait ColorTracker {
 
 impl ColorTracker for ColorCounter {
     fn add_color(&mut self, index: ColorIndex) {
-        assert!((index as usize) < CONNECTION_COLOR_COUNT);
+        debug_assert!((index as usize) < CONNECTION_COLOR_COUNT);
         self[index as usize] += 1;
     }
 
     fn remove_color(&mut self, index: ColorIndex) {
-        assert!((index as usize) < CONNECTION_COLOR_COUNT);
+        debug_assert!((index as usize) < CONNECTION_COLOR_COUNT);
         self[index as usize] = self[index as usize].saturating_sub(1);
     }
 

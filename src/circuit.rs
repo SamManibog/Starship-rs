@@ -9,7 +9,6 @@ use crate::{
 
 #[derive(Debug)]
 pub struct ConnectionSpecification {
-    pub name: &'static str,
     pub input_names: &'static[&'static str],
     pub output_names: &'static[&'static str],
     pub size: Vec2,
@@ -85,6 +84,9 @@ pub trait CircuitBuilder: std::fmt::Debug {
     ///Build the associated circuit
     fn build(&self) -> Box<dyn Circuit>;
 
+    ///gets the name of the circuit being built
+    fn name(&self) -> &str;
+
     ///Called when adding an input target to a circuit
     fn on_input_added(&mut self, port: PortId) { let _ = port; }
 
@@ -106,7 +108,7 @@ pub trait ControlCircuitBuilder: CircuitBuilder {
 ///A circuit that processes signals into outputs
 pub trait Circuit: std::fmt::Debug + Send {
     ///Handles a vector of signals to produce some output signals.
-    fn operate(&mut self, inputs: &[f32], outputs: &mut[f32]);
+    fn operate(&mut self, inputs: &[f32], outputs: &mut[f32], delta: f32);
 }
 
 ///Handles the ui used to build a circuit
@@ -141,7 +143,8 @@ impl ConnectionBuilder {
         ui: &mut egui::Ui,
         register: &mut HashMap<CircuitPortId, egui::Pos2>,
         input: &mut CircuitInput,
-        highlight: bool
+        highlight: bool,
+        name: &str
     ) -> egui::Response {
         let ui_builder = egui::UiBuilder::new()
             .sense(egui::Sense::all())
@@ -162,7 +165,7 @@ impl ConnectionBuilder {
                 .corner_radius(12)
                 .show(ui, |ui| {
                     ui.vertical_centered_justified(|ui| {
-                        ui.label(self.specification.name);
+                        ui.label(name);
                     });
                     ui.separator();
                     ui.horizontal(|ui| {
