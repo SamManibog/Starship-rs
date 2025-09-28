@@ -12,6 +12,8 @@ pub mod utils;
 
 pub mod playback;
 
+pub mod pitch;
+
 mod connection_manager;
 
 mod circuit_input;

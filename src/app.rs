@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet}, sync::Arc};
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, Stream};
 use eframe;
 use egui::{
-    Align, Area, CentralPanel, Color32, Context, Frame, Id, Label, MenuBar, Pos2, Response, RichText, ScrollArea, Sense, SidePanel, TextStyle, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
+    Align, Area, CentralPanel, Color32, Context, FontData, FontDefinitions, FontFamily, Frame, Id, Label, MenuBar, Pos2, Response, RichText, ScrollArea, Sense, SidePanel, TextStyle, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
 };
 
 use crate::{
@@ -65,6 +65,20 @@ pub struct App<'a> {
 impl<'a> App<'a> {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>, builders: &'a[CircuitBuilderSpecification]) -> Self {
+
+        // Add font to handle music glyphs
+        let mut fonts = FontDefinitions::default();
+        let font_name = "NotoMusic";
+        fonts.font_data.insert(
+            font_name.to_string(),
+            Arc::new(FontData::from_static(
+                include_bytes!("../assets/NotoMusicModified.otf")
+            )),
+        );
+        fonts.families.get_mut(&FontFamily::Proportional).unwrap()
+            .push(font_name.to_string());
+        cc.egui_ctx.set_fonts(fonts);
+
         // Customize egui style
         cc.egui_ctx.set_style({
             let mut style = egui::Style::default();
