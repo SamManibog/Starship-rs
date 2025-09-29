@@ -12,3 +12,6 @@ pub use oscillator::*;
 
 mod switch;
 pub use switch::*;
+
+pub mod interpolator;
+pub use interpolator::*;

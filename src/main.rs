@@ -1,6 +1,6 @@
 use starship_rust::{
     circuit::CircuitBuilderSpecification as Cbs,
-    circuits::{ConstantBuilder, OscillatorBuilder, RouterBuilder, SwitchBuilder},
+    circuits::{ConstantBuilder, InterpolatorBuilder, SwitchBuilder, OscillatorBuilder, RouterBuilder},
 };
 
 fn main() -> eframe::Result {
@@ -14,6 +14,7 @@ fn main() -> eframe::Result {
 
     let builders = [
         Cbs::new("Constant", || Box::new(ConstantBuilder::new())),
+        Cbs::new("Lerper", || Box::new(InterpolatorBuilder::new())),
         Cbs::new("Router", || Box::new(RouterBuilder::new())),
         Cbs::new("Oscillator", || Box::new(OscillatorBuilder::new())),
         Cbs::new("Switch", || Box::new(SwitchBuilder::new())),

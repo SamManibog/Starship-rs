@@ -399,6 +399,30 @@ impl EqualTemperment {
             a4_pitch
         }
     }
+
+    /// quantizes x to the nearest half tone frequency
+    /// Assumes x is greater than zero
+    pub fn quantize_semitone(&self, x: f32) -> f32 {
+        let quantize_index = f64::round(12.0 * f64::log2(x as f64 / self.a4_pitch as f64));
+        (self.a4_pitch as f64 * f64::powf(2.0, quantize_index / 12.0)) as f32
+    }
+
+    /// quantizes x to the nearest quarter tone frequency
+    /// Assumes x is greater than zero
+    pub fn quantize_microtone(&self, x: f32) -> f32 {
+        let quantize_index = f64::round(24.0 * f64::log2(x as f64 / self.a4_pitch as f64));
+        (self.a4_pitch as f64 * f64::powf(2.0, quantize_index / 24.0)) as f32
+    }
+
+    /// quantizes x to the nearest frequency on the A major scale
+    pub fn quantize_a_major(&self, x: f32) -> f32 {
+        fn p(x: f64) -> f64 {
+            f64::min(1.0, x % 12.0)
+        }
+        let i = f64::round(12.0 * f64::log2(x as f64 / self.a4_pitch as f64));
+        let s = i + p(i - 1.0) + p(i - 3.0) + p(i - 6.0) + p(i - 8.0) + p(i - 10.0) - 5.0;
+        (self.a4_pitch as f64 * f64::powf(2.0, s / 24.0)) as f32
+    }
 }
 
 impl Default for EqualTemperment {
