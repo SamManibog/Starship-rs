@@ -17,7 +17,7 @@ impl ConstantBuilder {
     const NAME: &'static str = "Constant";
 
     pub fn new() -> Self {
-        let value = PitchOrValue::Value(0.0);
+        let value = PitchOrValue::Value(1.0);
         Self {
             value,
             text: value.to_string()

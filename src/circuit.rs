@@ -118,7 +118,7 @@ pub trait CircuitUi {
 pub struct BuildState<'a> {
     pub input_counts: &'a [usize],
     pub output_counts: &'a [usize],
-    pub tuning: &'a dyn TuningSystem,
+    pub tuning: TuningSystem,
     ui_slot: OnceCell<Box<dyn CircuitUi>>,
     ui_state: Cell<BuildUiState>,
 }
@@ -128,7 +128,7 @@ impl<'a> BuildState<'a> {
     pub fn new(
         input_counts: &'a [usize],
         output_counts: &'a [usize],
-        tuning: &'a dyn TuningSystem,
+        tuning: TuningSystem,
         expect_ui: bool
     ) -> Self {
         let ui_state = if expect_ui {

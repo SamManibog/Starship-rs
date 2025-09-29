@@ -15,3 +15,6 @@ pub use switch::*;
 
 pub mod interpolator;
 pub use interpolator::*;
+
+pub mod sample_quantizer;
+pub use sample_quantizer::*;

@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet}, time::Duration};
 use cpal::{traits::DeviceTrait, BuildStreamError, FromSample, OutputCallbackInfo, Sample, SampleFormat, SampleRate, StreamConfig, StreamError};
 
 use crate::{
-    circuit::{BuildState, Circuit, CircuitBuilder, CircuitUiSlot}, circuit_id::{CircuitId, CircuitPortId}, connection_manager::ConnectionManager, pitch::EqualTemperment
+    circuit::{BuildState, Circuit, CircuitBuilder, CircuitUiSlot}, circuit_id::{CircuitId, CircuitPortId}, connection_manager::ConnectionManager, pitch::TuningSystem
 };
 
 pub struct PlaybackBackendData {
@@ -185,7 +185,7 @@ impl PlaybackBackendData {
         // the circuits built by their respective builders
         let (built_circuits, ui_slots) = {
             // todo TEMPORARY PLEASE DELETE
-            let tuning = EqualTemperment::new(440.0);
+            let tuning = TuningSystem::EqualTemperment(440.0);
 
             let mut built_circuits = Vec::with_capacity(circuits.len());
             let mut ui_slots = Vec::new();
@@ -207,7 +207,7 @@ impl PlaybackBackendData {
                 let mut build_state = BuildState::new(
                     &input_counts,
                     &output_counts,
-                    &tuning,
+                    tuning,
                     expect_ui
                 );
 

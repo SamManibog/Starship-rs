@@ -516,8 +516,8 @@ impl eframe::App for App<'_>{
 //   - Add abiility to jump to groups of circuits
 //   - Add coordinate display
 // - Add ability for builders to have descriptions
-// - Add safety, error checking to unwrap methods
 // - Add flags field to circuit builder specification, so that
 //   they may be organized in new circuit menu
 // - Add menu to edit layout of controls
+// - double check safety of unwrap methods
 

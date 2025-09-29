@@ -1,10 +1,9 @@
 use starship_rust::{
     circuit::CircuitBuilderSpecification as Cbs,
-    circuits::{ConstantBuilder, InterpolatorBuilder, SwitchBuilder, OscillatorBuilder, RouterBuilder},
+    circuits::{ConstantBuilder, InterpolatorBuilder, OscillatorBuilder, RouterBuilder, SampleQuantizerBuilder, SwitchBuilder},
 };
 
 fn main() -> eframe::Result {
-
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([400.0, 300.0])
@@ -18,6 +17,7 @@ fn main() -> eframe::Result {
         Cbs::new("Router", || Box::new(RouterBuilder::new())),
         Cbs::new("Oscillator", || Box::new(OscillatorBuilder::new())),
         Cbs::new("Switch", || Box::new(SwitchBuilder::new())),
+        Cbs::new("S-Quantizer", || Box::new(SampleQuantizerBuilder::new())),
     ];
 
     eframe::run_native(
