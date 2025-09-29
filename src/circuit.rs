@@ -132,7 +132,6 @@ impl<'a> BuildState<'a> {
         expect_ui: bool
     ) -> Self {
         let ui_state = if expect_ui {
-            println!("new state with expected ui");
             BuildUiState::Expected
         } else {
             BuildUiState::Disallow
@@ -149,7 +148,6 @@ impl<'a> BuildState<'a> {
 
     /// Adds a ui to the build state
     pub fn add_ui(&self, ui: Box<dyn CircuitUi>) {
-        println!("adding ui when state is {:?}", self.ui_state.get());
         // debug only as an added value when disallowed is just ignored
         debug_assert!(self.ui_state.get() != BuildUiState::Disallow, "Attempted to add a UI when none were expected.");
 

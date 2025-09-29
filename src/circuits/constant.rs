@@ -31,7 +31,7 @@ impl CircuitBuilder for ConstantBuilder {
     }
 
     fn show(&mut self, ui: &mut egui::Ui) {
-        crate::utils::pitch_or_value_input(ui, &mut self.text, &mut self.value);
+        crate::utils::pitch_or_number_input(ui, &mut self.text, &mut self.value);
     }
 
     fn specification(&self) -> &'static CircuitSpecification {

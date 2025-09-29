@@ -211,8 +211,6 @@ impl PlaybackBackendData {
                     expect_ui
                 );
 
-                println!("expect ui?: {}", expect_ui);
-
                 // build
                 built_circuits.push(builder.build(&build_state));
 

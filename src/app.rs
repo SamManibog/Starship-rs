@@ -505,8 +505,6 @@ impl eframe::App for App<'_>{
 
 // Todo:
 // - Make sample rate a part of build state
-// - Implement toggle and one-shot switch-type circuits
-// - Add declicking for switch-type circuits
 // - Clean up inspector ui
 // - Make ports highlighted when focused
 // - Make it so that when hovering a delete connection button,
@@ -521,3 +519,5 @@ impl eframe::App for App<'_>{
 // - Add safety, error checking to unwrap methods
 // - Add flags field to circuit builder specification, so that
 //   they may be organized in new circuit menu
+// - Add menu to edit layout of controls
+
