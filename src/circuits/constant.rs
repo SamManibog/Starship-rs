@@ -1,4 +1,4 @@
-use crate::{circuit::{Circuit, CircuitBuilder, ConnectionSpecification}, pitch::EqualTemperment, utils::PitchOrValue};
+use crate::{circuit::{BuildState, Circuit, CircuitBuilder, CircuitSpecification}, utils::PitchOrValue};
 
 #[derive(Debug, Clone)]
 pub struct ConstantBuilder {
@@ -7,17 +7,18 @@ pub struct ConstantBuilder {
 }
 
 impl ConstantBuilder {
-    const SPECIFICATION: ConnectionSpecification = ConnectionSpecification {
+    const SPECIFICATION: CircuitSpecification = CircuitSpecification {
         output_names: &["Out"],
         input_names: &[],
         size: egui::vec2(100.0, 100.0),
+        playback_size: None,
     };
 
     const NAME: &'static str = "Constant";
 
     pub fn new() -> Self {
         let value = PitchOrValue::Value(0.0);
-        Self{
+        Self {
             value,
             text: value.to_string()
         }
@@ -33,15 +34,15 @@ impl CircuitBuilder for ConstantBuilder {
         crate::utils::pitch_or_value_input(ui, &mut self.text, &mut self.value);
     }
 
-    fn specification(&self) -> &'static ConnectionSpecification {
+    fn specification(&self) -> &'static CircuitSpecification {
         &Self::SPECIFICATION
     }
 
-    fn build(&self) -> Box<dyn Circuit> {
+    fn build(&self, state: &BuildState) -> Box<dyn Circuit> {
         let value = match self.value {
             PitchOrValue::Value(val) => val,
             PitchOrValue::Pitch(pitch) => {
-                pitch.frequency(EqualTemperment::new(440.0))
+                state.tuning.get_pitch_frequency(&pitch)
             }
         };
         Box::new(Constant{ value })

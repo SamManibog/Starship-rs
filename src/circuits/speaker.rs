@@ -1,14 +1,15 @@
-use crate::circuit::{CircuitBuilder, Circuit, ConnectionSpecification};
+use crate::circuit::{BuildState, Circuit, CircuitBuilder, CircuitSpecification};
 
 #[derive(Debug, Clone)]
 pub struct SpeakerBuilder {
 }
 
 impl SpeakerBuilder {
-    const SPECIFICATION: ConnectionSpecification = ConnectionSpecification {
+    const SPECIFICATION: CircuitSpecification = CircuitSpecification {
         output_names: &[],
         input_names: &["In"],
         size: egui::vec2(100.0, 100.0),
+        playback_size: None,
     };
 
     const NAME: &'static str = "Speaker";
@@ -23,11 +24,11 @@ impl CircuitBuilder for SpeakerBuilder {
         Self::NAME
     }
 
-    fn specification(&self) -> &'static ConnectionSpecification {
+    fn specification(&self) -> &'static CircuitSpecification {
         &Self::SPECIFICATION
     }
 
-    fn build(&self) -> Box<dyn Circuit> {
+    fn build(&self, _: &BuildState) -> Box<dyn Circuit> {
         panic!("Speakers cannot be directly built.");
     }
 

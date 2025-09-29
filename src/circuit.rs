@@ -1,20 +1,28 @@
-use std::collections::HashMap;
+use std::cell::{Cell, OnceCell};
 
-use egui::{Color32, Ui, Label, Vec2};
+use egui::{Label, Ui, Vec2};
 
-use crate::{
-    circuit_id::{CircuitId, CircuitPortId, PortId, PortKind},
-    circuit_input::CircuitInput,
-};
+use crate::{circuit_id::{CircuitId, CircuitPortId, PortId, PortKind}, pitch::TuningSystem};
 
+/// The specification "skeleton" for a circuit. Describes basic top-level capabilities of
+/// the circuit.
 #[derive(Debug)]
-pub struct ConnectionSpecification {
+pub struct CircuitSpecification {
+    /// The names of each input to the circuit.
     pub input_names: &'static[&'static str],
+
+    /// The names of each output of the circuit
     pub output_names: &'static[&'static str],
+
+    /// The size of the circuit in the editor
     pub size: Vec2,
+
+    /// The size of the frontend ui for the circuit during playback
+    /// Should be none if there is no used ui.
+    pub playback_size: Option<Vec2>
 }
 
-impl ConnectionSpecification {
+impl CircuitSpecification {
     /// Returns an iterator over input port ids
     pub fn input_port_id_iter(&self) -> impl Iterator<Item = PortId> {
         (0..self.input_names.len())
@@ -50,6 +58,7 @@ impl ConnectionSpecification {
     }
 }
 
+
 pub struct CircuitBuilderSpecification {
     pub display_name: String,
     pub instance: Box<dyn Fn()->Box<dyn CircuitBuilder>>
@@ -70,219 +79,113 @@ impl std::fmt::Debug for CircuitBuilderSpecification {
     }
 }
 
-///Creates a circuit based on user parameters
+/// Creates a circuit based on user parameters
 pub trait CircuitBuilder: std::fmt::Debug {
-    ///Draw the circuit UI to the screen. Passed to egui's show function.
-    ///Do not attempt to handle circuit connections in this step.
-    fn show(&mut self, ui: &mut egui::Ui) {
+    /// Draw the circuit UI to the screen. Passed to egui's show function.
+    /// Do not attempt to handle circuit connections in this step.
+    fn show(&mut self, ui: &mut Ui) {
         ui.add(Label::new("This circuit is not configurable.").wrap());
     }
 
-    ///gets the specification for the circuit
-    fn specification(&self) -> &'static ConnectionSpecification;
+    /// gets the specification for the circuit
+    fn specification(&self) -> &'static CircuitSpecification;
 
-    ///Build the associated circuit
-    fn build(&self) -> Box<dyn Circuit>;
+    /// Build the associated circuit and its ui
+    fn build(&self, state: &BuildState) -> Box<dyn Circuit>;
 
-    ///gets the name of the circuit being built
+    /// gets the name of the circuit being built
     fn name(&self) -> &str;
 
-    ///Called when adding an input target to a circuit
-    fn on_input_added(&mut self, port: PortId) { let _ = port; }
-
-    ///Called when removing an input target to a circuit
-    fn on_input_removed(&mut self, port: PortId) { let _ = port; }
-
-    ///Request a size for the entire UI.
-    ///This size will be filled with the title, IO ports, padding, etc. along with your custom UI.
-    ///Called every frame before drawing.
+    /// Request a size for the entire UI.
+    /// This size will be filled with the title, IO ports, padding, etc. along with your custom UI.
+    /// Called every frame before drawing.
     fn request_size(&self) -> Option<egui::Vec2> { None }
 }
 
-///Builds a circuit that can be controlled at runtime
-pub trait ControlCircuitBuilder: CircuitBuilder {
-    ///Returns a function that is used to draw the ui for the controller
-    fn build_ui(&self) -> Box<dyn FnMut(Ui)>;
-}
-
-///A circuit that processes signals into outputs
+/// A circuit that processes signals into outputs
 pub trait Circuit: std::fmt::Debug + Send {
-    ///Handles a vector of signals to produce some output signals.
+    /// Handles a vector of signals to produce some output signals.
     fn operate(&mut self, inputs: &[f32], outputs: &mut[f32], delta: f32);
 }
 
-///Handles the ui used to build a circuit
-#[derive(Debug)]
-pub struct ConnectionBuilder {
-    id: CircuitId,
-    specification: &'static ConnectionSpecification,
+/// The ui for a circuit
+pub trait CircuitUi {
+    /// Draws the ui to the screen
+    fn show(&mut self, ui: &mut Ui);
 }
 
-impl ConnectionBuilder {
-    ///Creates a new instance
-    pub fn new(id: CircuitId, specification: &'static ConnectionSpecification) -> Self {
+/// Data passed to CircuitBuilders during builds
+pub struct BuildState<'a> {
+    pub input_counts: &'a [usize],
+    pub output_counts: &'a [usize],
+    pub tuning: &'a dyn TuningSystem,
+    ui_slot: OnceCell<Box<dyn CircuitUi>>,
+    ui_state: Cell<BuildUiState>,
+}
+
+impl<'a> BuildState<'a> {
+    /// Creates a new build state
+    pub fn new(
+        input_counts: &'a [usize],
+        output_counts: &'a [usize],
+        tuning: &'a dyn TuningSystem,
+        expect_ui: bool
+    ) -> Self {
+        let ui_state = if expect_ui {
+            println!("new state with expected ui");
+            BuildUiState::Expected
+        } else {
+            BuildUiState::Disallow
+        };
+
         Self {
-            id,
-            specification,
+            input_counts,
+            output_counts,
+            tuning,
+            ui_slot: OnceCell::new(),
+            ui_state: Cell::new(ui_state)
         }
     }
 
-    ///Gets the id of the circuit
-    pub fn id(&self) -> CircuitId {
-        self.id
+    /// Adds a ui to the build state
+    pub fn add_ui(&self, ui: Box<dyn CircuitUi>) {
+        println!("adding ui when state is {:?}", self.ui_state.get());
+        // debug only as an added value when disallowed is just ignored
+        debug_assert!(self.ui_state.get() != BuildUiState::Disallow, "Attempted to add a UI when none were expected.");
+
+        // debug only as the old value is just discarded, but the dev should be made aware of this.
+        debug_assert!(self.ui_state.get() != BuildUiState::Recieved, "Attempted to add a UI when one has already been added (only one UI is allowed per circuit).");
+
+        let _ = self.ui_slot.set(ui);
+        self.ui_state.set(BuildUiState::Recieved);
     }
 
-    ///Gets the associated specification
-    pub fn specification(&self) -> &'static ConnectionSpecification {
-        self.specification
-    }
-
-    pub fn show(
-        &mut self,
-        position: egui::Pos2,
-        ui: &mut egui::Ui,
-        register: &mut HashMap<CircuitPortId, egui::Pos2>,
-        input: &mut CircuitInput,
-        highlight: bool,
-        name: &str
-    ) -> egui::Response {
-        let ui_builder = egui::UiBuilder::new()
-            .sense(egui::Sense::all())
-            .max_rect(egui::Rect::from_min_size(
-                position,
-                self.specification.size
-            ));
-
-        ui.scope_builder(ui_builder, |ui| {
-            let mut stroke = ui.ctx().style().visuals.window_stroke;
-            if highlight {
-                stroke.color = Color32::WHITE;
-            }
-            egui::Frame::new()
-                .fill(ui.ctx().style().visuals.window_fill)
-                .stroke(stroke)
-                .inner_margin(4.0)
-                .corner_radius(12)
-                .show(ui, |ui| {
-                    ui.vertical_centered_justified(|ui| {
-                        ui.label(name);
-                    });
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        ui.vertical(|ui| {
-                            self.draw_ports(
-                                ui,
-                                register,
-                                input,
-                                self.specification.input_names,
-                                PortKind::Input
-                            );
-                        });
-                        ui.with_layout(
-                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                            |_| { }
-                        );
-                        ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
-                            self.draw_ports(
-                                ui,
-                                register,
-                                input,
-                                self.specification.output_names,
-                                PortKind::Output
-                            );
-                        });
-                    });
-                });
-
-            ui.response()
-        }).inner
-    }
-
-    fn draw_ports(
-        &self,
-        ui: &mut egui::Ui,
-        register: &mut HashMap<CircuitPortId, egui::Pos2>,
-        connection: &mut CircuitInput,
-        names: &[&str],
-        kind: PortKind
-    ) {
-        for (idx, name) in names.iter().enumerate() {
-            ui.horizontal(|ui| {
-                let id = CircuitPortId::new(
-                        self.id,
-                        PortId::new(idx, kind)
-                    );
-                register.insert(
-                    id,
-                    ui.add(PortUi::new(id, connection)).rect.center()
-                );
-                ui.label(*name);
-            });
-        }
-    }
-
-}
-
-impl std::hash::Hash for ConnectionBuilder {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.id.hash(state)
+    /// Gets the added ui, throws an error in debug mode if a ui was expected, but
+    /// none recieved.
+    pub(crate) fn get_ui(&mut self) -> Box<dyn CircuitUi> {
+        assert!(self.ui_state.get() != BuildUiState::Disallow, "Not expected to recieve a UI; therefore cannot retrieve one.");
+        assert!(self.ui_state.get() != BuildUiState::Expected, "Expected to get a ui, but none was recieved.");
+        self.ui_slot.take().unwrap()
     }
 }
 
-#[derive(Debug)]
-pub struct PortUi<'a> {
-    ///The id of the associated port
-    id: CircuitPortId,
-
-    ///A mutable reference to the app state's new_connection member, 
-    ///which is used to handle the possible creation of a new connection
-    connection_proposal: &'a mut CircuitInput
+/// Internal data that holds a circuit ui
+/// Tracks the size of the ui added
+pub struct CircuitUiSlot {
+    pub size: Vec2,
+    pub ui: Box<dyn CircuitUi>
 }
 
-impl<'a> PortUi<'a> {
-    ///Radius of the port when disconnected
-    pub const UNFILLED_RADIUS: f32 = 5.0;
-
-    ///Color of the port when disconnected
-    pub const UNFILLED_COLOR: egui::Color32 = egui::Color32::BLACK;
-
-    ///Radius of the port when connected
-    pub const FILLED_RADIUS: f32 = 6.0;
-
-    ///Color of the port when connected
-    pub const FILLED_COLOR: egui::Color32 = egui::Color32::BLACK;
-
-    ///Color of the port when hovered
-    pub const HOVERED_COLOR: egui::Color32 = egui::Color32::WHITE;
-
-    pub fn new(id: CircuitPortId, connection: &'a mut CircuitInput) -> Self {
-        Self {
-            id,
-            connection_proposal: connection
-        }
+impl CircuitUiSlot {
+    pub fn show(&mut self, ui: &mut Ui) {
+        self.ui.show(ui);
     }
 }
 
-impl egui::Widget for PortUi<'_> {
-    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
-        let (response, painter) = ui.allocate_painter(
-            egui::vec2(PortUi::FILLED_RADIUS * 2.0, PortUi::FILLED_RADIUS * 2.0),
-            egui::Sense::click_and_drag()
-        );
-        let center = response.rect.center();
-        if response.hovered() {
-            painter.circle_filled(center, Self::FILLED_RADIUS, Self::HOVERED_COLOR);
-        }
-        painter.circle_filled(center, Self::UNFILLED_RADIUS, Self::UNFILLED_COLOR);
-        if response.drag_started() {
-            response.dnd_set_drag_payload::<CircuitPortId>(self.id);
-            let _ = self.connection_proposal.start(self.id);
-        } else if let Some(_) = response.dnd_release_payload::<CircuitPortId>() {
-            let _ = self.connection_proposal.propose(self.id);
-            let _ = self.connection_proposal.finalize();
-        } else if response.clicked() {
-            self.connection_proposal.click(self.id);
-        }
-        response
-    }
+/// enum used to track ui additions during build state
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuildUiState {
+    Expected,
+    Recieved,
+    Disallow,
 }

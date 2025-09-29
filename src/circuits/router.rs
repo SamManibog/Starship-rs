@@ -1,13 +1,14 @@
-use crate::circuit::{CircuitBuilder, Circuit, ConnectionSpecification};
+use crate::circuit::{BuildState, Circuit, CircuitBuilder, CircuitSpecification};
 
 #[derive(Debug, Clone)]
 pub struct RouterBuilder {}
 
 impl RouterBuilder {
-    const SPECIFICATION: ConnectionSpecification = ConnectionSpecification {
+    const SPECIFICATION: CircuitSpecification = CircuitSpecification {
         input_names: &["In"],
         output_names: &["Out"],
         size: egui::vec2(100.0, 70.0),
+        playback_size: None,
     };
 
     const NAME: &'static str = "Router";
@@ -22,11 +23,11 @@ impl CircuitBuilder for RouterBuilder {
         Self::NAME
     }
 
-    fn specification(&self) -> &'static ConnectionSpecification {
+    fn specification(&self) -> &'static CircuitSpecification {
         &Self::SPECIFICATION
     }
 
-    fn build(&self) -> Box<dyn Circuit> {
+    fn build(&self, _: &BuildState) -> Box<dyn Circuit> {
         Box::new(Router::default())
     }
 }

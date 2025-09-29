@@ -1,25 +1,25 @@
 use std::{collections::{HashMap, HashSet}, u16};
 use egui::{Color32, Painter, Pos2, Stroke, epaint::CubicBezierShape};
 
-use crate::{circuit::PortUi, circuit_id::{CircuitId, CircuitPortId, ConnectionId}};
+use crate::{connection_builder::PortUi, circuit_id::{CircuitId, CircuitPortId, ConnectionId}};
 
-///The amount of possible colors for a connection
+/// The amount of possible colors for a connection
 pub const CONNECTION_COLOR_COUNT: usize = 5;
 type ColorIndex = u8;
 type ColorCount = u16;
 type ColorCounter = [ColorCount; CONNECTION_COLOR_COUNT];
 
 trait ColorTracker {
-    ///Adds a color with the given index to the tracker
+    /// Adds a color with the given index to the tracker
     fn add_color(&mut self, index: ColorIndex);
 
-    ///Removes a color with the given index from the tracker
+    /// Removes a color with the given index from the tracker
     fn remove_color(&mut self, index: ColorIndex);
 
-    ///Gets the least common colors from a pair of trackers
+    /// Gets the least common colors from a pair of trackers
     fn min_colors(&self, other: &Self) -> Vec<ColorIndex>;
 
-    ///Gets the total number of connections
+    /// Gets the total number of connections
     fn total_connections(&self) -> usize;
 }
 
@@ -62,7 +62,7 @@ impl ColorTracker for ColorCounter {
 
 }
 
-///The array of possible colors for a connection
+/// The array of possible colors for a connection
 pub const CONNECTION_COLORS: [Color32; CONNECTION_COLOR_COUNT] = [
     Color32::RED,
     Color32::YELLOW,
@@ -73,25 +73,25 @@ pub const CONNECTION_COLORS: [Color32; CONNECTION_COLOR_COUNT] = [
 
 #[derive(Debug, Default)]
 pub struct ConnectionManager {
-    ///The list of all connections and their assigned colors
+    /// The list of all connections and their assigned colors
     connections: Vec<(ConnectionId, ColorIndex)>,
 
-    ///The set of all connections
+    /// The set of all connections
     connection_set: HashSet<ConnectionId>,
 
-    ///A map matching a port to the colors of its associated connections
+    /// A map matching a port to the colors of its associated connections
     counter_map: HashMap<CircuitPortId, ColorCounter>,
 
-    ///A map matching a port to the other ports it is connected to
+    /// A map matching a port to the other ports it is connected to
     connection_map: HashMap<CircuitPortId, Vec<CircuitPortId>>,
 
-    ///A number used to determine the next connection color for variety
+    /// A number used to determine the next connection color for variety
     next_color: usize
 }
 
 impl ConnectionManager {
-    ///Adds the given connection to the list of connections.
-    ///Returns true if the connection was successfully added.
+    /// Adds the given connection to the list of connections.
+    /// Returns true if the connection was successfully added.
     pub fn add_connection(&mut self, connection: ConnectionId) -> bool {
         if !self.connection_set.contains(&connection) {
             //ensure color counters are initialized
@@ -150,8 +150,8 @@ impl ConnectionManager {
         }
     }
 
-    ///Removes the given connection from the list of connections.
-    ///Returns true if the connection was successfully removed
+    /// Removes the given connection from the list of connections.
+    /// Returns true if the connection was successfully removed
     pub fn remove_connection(&mut self, connection: ConnectionId) -> bool {
         if self.connection_set.contains(&connection) {
 
@@ -173,7 +173,7 @@ impl ConnectionManager {
         }
     }
 
-    ///Removes the all connections associated with the given circuit
+    /// Removes the all connections associated with the given circuit
     pub fn remove_circuit(&mut self, circuit: CircuitId) {
         let mut to_remove = vec![];
         self.connections.retain(|(entry, col)| {
@@ -190,9 +190,9 @@ impl ConnectionManager {
         }
     }
 
-    ///Clears all data associated with the connection. You must provide the color
-    ///associated with the connection, or the manager will not function properly
-    ///Does not remove the connection from the list of connections
+    /// Clears all data associated with the connection. You must provide the color
+    /// associated with the connection, or the manager will not function properly
+    /// Does not remove the connection from the list of connections
     fn wipe_connection_data(&mut self, connection: ConnectionId, color: ColorIndex) {
         self.connection_set.remove(&connection);
 
@@ -229,7 +229,7 @@ impl ConnectionManager {
     const CONNECT_MIN_X: f32 = 100.0;
     const CONNECT_MAX_X: f32 = 200.0;
     const CONNECT_THICKNESS: f32 = 1.0;
-    ///gets the points for the cubic bezier connecting the start and end points
+    /// gets the points for the cubic bezier connecting the start and end points
     fn get_connection_points(start: Pos2, end: Pos2) -> [Pos2; 4] {
         let mut diff_x = (end.x - start.x).abs();
         let mut diff_y = 0.0;
@@ -249,7 +249,7 @@ impl ConnectionManager {
     }
 
 
-    ///draws the connection between two points
+    /// draws the connection between two points
     pub fn draw_connection(painter: &Painter, color: Color32, start: Pos2, end: Pos2) {
         let connection = CubicBezierShape::from_points_stroke(
             Self::get_connection_points(start, end),
@@ -262,7 +262,7 @@ impl ConnectionManager {
         painter.circle_filled(end, PortUi::FILLED_RADIUS, PortUi::FILLED_COLOR);
     }
 
-    ///Draws all connections to the screen, suing the given map of positions
+    /// Draws all connections to the screen, suing the given map of positions
     pub fn draw_connections(&self, painter: &Painter, positions: &HashMap<CircuitPortId, Pos2>) {
         for (connection, color_idx) in &self.connections {
             Self::draw_connection(
@@ -287,8 +287,16 @@ impl ConnectionManager {
 
     /// Returns a slice of all ports connected to the given port
     pub fn port_query_ports(&self, port: CircuitPortId) -> Option<&[CircuitPortId]> {
-        return match self.connection_map.get(&port) {
+        match self.connection_map.get(&port) {
             Some(vec) => Some(vec.as_slice()),
+            None => None
+        }
+    }
+
+    /// Gets the total number of connections to the given port
+    pub fn port_query_connection_count(&self, port: CircuitPortId) -> Option<usize> {
+        match self.counter_map.get(&port) {
+            Some(counter) => Some(counter.total_connections()),
             None => None
         }
     }

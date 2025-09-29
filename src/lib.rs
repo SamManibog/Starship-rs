@@ -4,7 +4,13 @@ pub mod circuit;
 
 pub mod circuit_id;
 
+pub mod circuit_input;
+
 pub mod circuits;
+
+pub mod connection_builder;
+
+pub mod connection_manager;
 
 pub mod constants;
 
@@ -14,6 +20,3 @@ pub mod playback;
 
 pub mod pitch;
 
-mod connection_manager;
-
-mod circuit_input;

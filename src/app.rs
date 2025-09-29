@@ -7,7 +7,7 @@ use egui::{
 };
 
 use crate::{
-    circuit::{CircuitBuilder, CircuitBuilderSpecification, ConnectionBuilder}, circuit_id::{ CircuitId, CircuitPortId, ConnectionId, PortKind }, circuit_input::{ CircuitInput, PortInputState }, circuits::SpeakerBuilder, connection_manager::ConnectionManager, playback::PlaybackBackendData
+    circuit::{CircuitBuilder, CircuitBuilderSpecification, CircuitUiSlot}, circuit_id::{ CircuitId, CircuitPortId, ConnectionId, PortKind }, circuit_input::{ CircuitInput, PortInputState }, circuits::SpeakerBuilder, connection_builder::ConnectionBuilder, connection_manager::ConnectionManager, playback::PlaybackBackendData
 };
 
 #[derive(Debug)]
@@ -56,6 +56,7 @@ pub struct App<'a> {
     new_circuit_ui: Option<Pos2>,
 
     // playback data
+    circuit_uis: Vec<CircuitUiSlot>,
     stream: Option<Stream>,
     
     // misc
@@ -101,14 +102,14 @@ impl<'a> App<'a> {
             inspector_focus: InspectorFocus::None,
             new_circuit_ui: None,
             stream: None,
+            circuit_uis: Vec::new(),
             mode: AppMode::Editor,
         }
     }
 
     pub fn begin_playback(&mut self) {
-        println!("begin playback");
         //setup backend data
-        let backend_data = PlaybackBackendData::new(
+        let (backend_data, frontend_data) = PlaybackBackendData::new(
             &self.builder_ids,
             &self.builder_map,
             &self.connections,
@@ -116,26 +117,13 @@ impl<'a> App<'a> {
             crate::constants::SAMPLE_MULTIPLIER
         );
 
-        /*
-        let mut vec = [0.0; 25];
-        let mut cb = backend_data.stream_data_callback();
-        let info = cpal::OutputCallbackInfo::new(cpal::OutputStreamTimestamp {
-            playback: StreamInstant::new(0, 0),
-            callback: StreamInstant::new(0, 0)
-        });
-        cb(&mut vec, &info);
-        println!("vec: {:?}", vec);
-
-        println!("setup audio");
-*/
-
         //setup audio
         let host = cpal::default_host();
         let device = host.default_output_device().expect("No output device available.");
         let default_config = device.default_output_config().expect("Default config not found.");
 
         println!(
-            "Running on '{}' with sample format {}.",
+            "Starting playback on '{}' with sample format {}.",
             device.name().unwrap_or("N/A".to_string()),
             device.default_output_config().unwrap().sample_format()
         );
@@ -155,10 +143,12 @@ impl<'a> App<'a> {
         ).expect("Audio stream could not be built.");
         let _ = stream.play();
         self.stream = Some(stream);
+        self.circuit_uis = frontend_data;
     }
 
     pub fn end_playback(&mut self) {
         self.stream = None;
+        self.circuit_uis = Vec::new();
     }
 
     /// Adds a new speaker at the given position
@@ -479,6 +469,16 @@ impl<'a> App<'a> {
             });
         });
 
+        // todo this is a temporary solution
+        CentralPanel::default()
+            .show(ctx, |ui| {
+                ui.with_layout(ui.layout().with_main_wrap(true), |ui| {
+                    for circuit_ui in self.circuit_uis.iter_mut() {
+                        circuit_ui.show(ui)
+                    }
+                })
+            });
+
     }
 }
 
@@ -504,8 +504,9 @@ impl eframe::App for App<'_>{
 }
 
 // Todo:
-// - Make things attempt to save when focus lost
-// - Add API for control circuits
+// - Make sample rate a part of build state
+// - Implement toggle and one-shot switch-type circuits
+// - Add declicking for switch-type circuits
 // - Clean up inspector ui
 // - Make ports highlighted when focused
 // - Make it so that when hovering a delete connection button,
@@ -518,5 +519,5 @@ impl eframe::App for App<'_>{
 //   - Add coordinate display
 // - Add ability for builders to have descriptions
 // - Add safety, error checking to unwrap methods
-// - Add flags field to circuit builder specification, so that they may be organized
-
+// - Add flags field to circuit builder specification, so that
+//   they may be organized in new circuit menu

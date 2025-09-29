@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet}, time::Duration};
 use cpal::{traits::DeviceTrait, BuildStreamError, FromSample, OutputCallbackInfo, Sample, SampleFormat, SampleRate, StreamConfig, StreamError};
 
 use crate::{
-    circuit::{Circuit, CircuitBuilder}, circuit_id::{CircuitId, CircuitPortId}, connection_manager::ConnectionManager
+    circuit::{BuildState, Circuit, CircuitBuilder, CircuitUiSlot}, circuit_id::{CircuitId, CircuitPortId}, connection_manager::ConnectionManager, pitch::EqualTemperment
 };
 
 pub struct PlaybackBackendData {
@@ -76,13 +76,14 @@ impl std::fmt::Debug for ConnectionBehavior {
 }
 
 impl PlaybackBackendData {
+    /// Constructs self as well as the associated ui slots
     pub fn new(
         ids: &[CircuitId],
         builders: &HashMap<CircuitId, Box<dyn CircuitBuilder>>,
         connections: &ConnectionManager,
         speakers: &HashSet<CircuitId>,
         sample_multiplier: f32,
-    ) -> Self {
+    ) -> (Self, Vec<CircuitUiSlot>) {
         debug_assert!(sample_multiplier > 0.0, "Sample multiplier must be greater than zero.");
 
         // determine circuit order and depths
@@ -182,12 +183,47 @@ impl PlaybackBackendData {
         let input_buffer = vec![0.0; speaker_index + 1];
 
         // the circuits built by their respective builders
-        let built_circuits = {
+        let (built_circuits, ui_slots) = {
+            // todo TEMPORARY PLEASE DELETE
+            let tuning = EqualTemperment::new(440.0);
+
             let mut built_circuits = Vec::with_capacity(circuits.len());
+            let mut ui_slots = Vec::new();
+
             for circuit_id in circuits {
-                built_circuits.push(builders[&circuit_id].build());
+                let builder = &builders[&circuit_id];
+                let specification = builder.specification();
+
+                // construct up build state
+                let input_counts: Vec<usize> = specification.circuit_input_port_id_iter(circuit_id)
+                    .filter_map(|id| connections.port_query_connection_count(id))
+                    .collect();
+                let output_counts: Vec<usize> = specification
+                    .circuit_output_port_id_iter(circuit_id)
+                    .filter_map(|id| connections.port_query_connection_count(id))
+                    .collect();
+                let expect_ui = specification.playback_size != None;
+
+                let mut build_state = BuildState::new(
+                    &input_counts,
+                    &output_counts,
+                    &tuning,
+                    expect_ui
+                );
+
+                println!("expect ui?: {}", expect_ui);
+
+                // build
+                built_circuits.push(builder.build(&build_state));
+
+                if expect_ui {
+                    ui_slots.push(CircuitUiSlot {
+                        size: specification.playback_size.unwrap(),
+                        ui: build_state.get_ui()
+                    })
+                }
             }
-            built_circuits
+            (built_circuits, ui_slots)
         };
 
         debug_assert!(
@@ -204,13 +240,16 @@ impl PlaybackBackendData {
             input_ranges.len()
         );
 
-        Self {
-            circuits: built_circuits,
-            input_buffer,
-            input_ranges,
-            output_target_list,
-            sample_multiplier
-        }
+        (
+            Self {
+                circuits: built_circuits,
+                input_buffer,
+                input_ranges,
+                output_target_list,
+                sample_multiplier
+            },
+            ui_slots
+        )
     }
 
     /// Given a list of CircuitIds and their builders, constructs a map from the id
@@ -484,3 +523,4 @@ impl PlaybackBackendData {
     }
 
 }
+

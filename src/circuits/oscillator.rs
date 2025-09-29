@@ -1,4 +1,4 @@
-use crate::circuit::{CircuitBuilder, Circuit, ConnectionSpecification};
+use crate::circuit::{BuildState, Circuit, CircuitBuilder, CircuitSpecification};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OscillatorKind {
@@ -40,10 +40,11 @@ pub struct OscillatorBuilder {
 }
 
 impl OscillatorBuilder {
-    const SPECIFICATION: ConnectionSpecification = ConnectionSpecification {
+    const SPECIFICATION: CircuitSpecification = CircuitSpecification {
         input_names: &["Amplitude", "Frequency"],
         output_names: &["Out"],
         size: egui::vec2(200.0, 200.0),
+        playback_size: None,
     };
 
     pub fn new() -> Self {
@@ -56,20 +57,20 @@ impl OscillatorBuilder {
 impl CircuitBuilder for OscillatorBuilder {
     fn show(&mut self, ui: &mut egui::Ui) {
         ui.radio_value(&mut self.kind, OscillatorKind::Sine, OscillatorKind::SINE_TEXT);
+        ui.radio_value(&mut self.kind, OscillatorKind::Triangle, OscillatorKind::TRI_TEXT);
         ui.radio_value(&mut self.kind, OscillatorKind::Saw, OscillatorKind::SAW_TEXT);
         ui.radio_value(&mut self.kind, OscillatorKind::Square, OscillatorKind::SQR_TEXT);
-        ui.radio_value(&mut self.kind, OscillatorKind::Triangle, OscillatorKind::TRI_TEXT);
     }
 
     fn name(&self) -> &str {
         self.kind.display_string()
     }
 
-    fn specification(&self) -> &'static ConnectionSpecification {
+    fn specification(&self) -> &'static CircuitSpecification {
         &Self::SPECIFICATION
     }
 
-    fn build(&self) -> Box<dyn Circuit> {
+    fn build(&self, _: &BuildState) -> Box<dyn Circuit> {
         match self.kind {
             OscillatorKind::Sine => Box::new(Sine::default()),
             OscillatorKind::Saw => Box::new(Saw::default()),
