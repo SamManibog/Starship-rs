@@ -119,6 +119,7 @@ pub struct BuildState<'a> {
     pub input_counts: &'a [usize],
     pub output_counts: &'a [usize],
     pub tuning: TuningSystem,
+    pub sample_rate: u32,
     ui_slot: OnceCell<Box<dyn CircuitUi>>,
     ui_state: Cell<BuildUiState>,
 }
@@ -129,6 +130,7 @@ impl<'a> BuildState<'a> {
         input_counts: &'a [usize],
         output_counts: &'a [usize],
         tuning: TuningSystem,
+        sample_rate: u32,
         expect_ui: bool
     ) -> Self {
         let ui_state = if expect_ui {
@@ -141,6 +143,7 @@ impl<'a> BuildState<'a> {
             input_counts,
             output_counts,
             tuning,
+            sample_rate,
             ui_slot: OnceCell::new(),
             ui_state: Cell::new(ui_state)
         }

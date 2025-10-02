@@ -82,6 +82,7 @@ impl PlaybackBackendData {
         builders: &HashMap<CircuitId, Box<dyn CircuitBuilder>>,
         connections: &ConnectionManager,
         speakers: &HashSet<CircuitId>,
+        sample_rate: u32,
         sample_multiplier: f32,
     ) -> (Self, Vec<CircuitUiSlot>) {
         debug_assert!(sample_multiplier > 0.0, "Sample multiplier must be greater than zero.");
@@ -208,6 +209,7 @@ impl PlaybackBackendData {
                     &input_counts,
                     &output_counts,
                     tuning,
+                    sample_rate,
                     expect_ui
                 );
 
