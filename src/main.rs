@@ -3,6 +3,14 @@ use starship_rust::{
     circuits::{ConstantBuilder, InterpolatorBuilder, OscillatorBuilder, RouterBuilder, SampleQuantizerBuilder, SwitchBuilder},
 };
 
+macro_rules! builder_defs {
+    ($({$t:ty : $n:expr})*) => (
+        [
+            $(Cbs::new($n, || Box::new(<$t>::new())),)*
+        ]
+    )
+}
+
 fn main() -> eframe::Result {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -11,13 +19,13 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
-    let builders = [
-        Cbs::new("Constant", || Box::new(ConstantBuilder::new())),
-        Cbs::new("Lerper", || Box::new(InterpolatorBuilder::new())),
-        Cbs::new("Router", || Box::new(RouterBuilder::new())),
-        Cbs::new("Oscillator", || Box::new(OscillatorBuilder::new())),
-        Cbs::new("Switch", || Box::new(SwitchBuilder::new())),
-        Cbs::new("S-Quantizer", || Box::new(SampleQuantizerBuilder::new())),
+    let builders = builder_defs![
+        {ConstantBuilder: "Constant"}
+        {InterpolatorBuilder: "Constant"}
+        {RouterBuilder: "Router"}
+        {OscillatorBuilder: "Oscillator"}
+        {SwitchBuilder: "Switch"}
+        {SampleQuantizerBuilder: "S-Quantizer"}
     ];
 
     eframe::run_native(

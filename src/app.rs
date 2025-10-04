@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet}, sync::Arc};
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, Stream};
 use eframe;
 use egui::{
-    Align, CentralPanel, Color32, Context, FontData, FontDefinitions, FontFamily, Frame, Label, MenuBar, Pos2, Rect, Response, RichText, Scene, ScrollArea, Sense, SidePanel, TextStyle, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
+    Align, Area, CentralPanel, Color32, Context, FontData, FontDefinitions, FontFamily, Frame, Label, MenuBar, Pos2, Rect, Response, RichText, Scene, ScrollArea, Sense, SidePanel, TextStyle, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
 };
 
 use crate::{
@@ -201,15 +201,20 @@ impl<'a> App<'a> {
     }
 
     /// Draws the ui for adding a new circuit at the given location
-    fn draw_new_circuit_ui(&mut self, ui: &mut Ui, position: Pos2, old: bool) {
-        let ui_builder = egui::UiBuilder::new()
-            .sense(egui::Sense::click_and_drag())
-            .max_rect(egui::Rect::from_min_size(
-                position,
-                egui::vec2(150.0, 1000.0)
-            ));
+    fn draw_new_circuit_ui(
+        &mut self,
+        ctx: &Context,
+        position: Pos2,
+        scene_rect: Rect,
+        scene_clip_rect: Rect,
+        old: bool
+    ) {
+        let true_pos = (position - scene_rect.min).to_pos2() * self.zoom + scene_clip_rect.min.to_vec2();
 
-        let response = ui.scope_builder(ui_builder, |ui| {
+        let response = Area::new(egui::Id::new("new_circuit_ui"))
+            .sense(Sense::click_and_drag())
+            .fixed_pos(true_pos)
+            .show(ctx, |ui| {
                 Frame::new()
                     .fill(ui.style().visuals.window_fill)
                     .stroke(ui.style().visuals.window_stroke)
@@ -238,7 +243,7 @@ impl<'a> App<'a> {
 
         // If there was some click off of the ui, close it
         // If there was a click on one of the buttons, will cancel too
-        if old && !response.clicked() && ui.input(|i| {
+        if old && !response.clicked() && ctx.input(|i| {
             i.pointer.any_click() || i.pointer.is_decidedly_dragging()
         }) {
             self.new_circuit_ui = None;
@@ -336,7 +341,7 @@ impl<'a> App<'a> {
                 self.draw_inspector(ui);
             });
 
-        let old_new_circuit_ui = self.new_circuit_ui != None;
+        let mut old_new_circuit_ui = self.new_circuit_ui != None;
 
         //A map CircuitPortId -> egui::Pos2
         //used to draw connections between ports
@@ -344,6 +349,7 @@ impl<'a> App<'a> {
 
         let mut scene_rect = Rect::NOTHING;
         let mut window_size = Vec2::ZERO;
+        let mut clip_rect = Rect::NOTHING;
 
         CentralPanel::default().show(ctx, |ui| {
             window_size = ui.available_size();
@@ -351,12 +357,12 @@ impl<'a> App<'a> {
                 self.cam_pos.to_pos2(),
                 window_size / self.zoom
             );
-            let clip_rect = ui.response().rect;
+            let scene_min_pos = scene_rect.min.to_vec2();
+            clip_rect = ui.response().rect;
             let response = Scene::new()
                 .zoom_range(Self::MIN_ZOOM..=Self::MAX_ZOOM)
                 .sense(Sense::click_and_drag())
                 .show(ui, &mut scene_rect, |ui| {
-                    let scene_clip_rect = ui.response().rect;
 
                     let mut mod_response: Option<(CircuitId, Response)> = None;
                     for id in self.builder_ids.iter_mut() {
@@ -402,8 +408,7 @@ impl<'a> App<'a> {
                             //if mouse state is good, draw the connection
                             //otherwise, cancel the connection
                             if let Some(raw_mouse_pos) = mouse_pos_opt {
-                                let clip_start = scene_clip_rect.min.to_vec2();
-                                let mouse_pos = (raw_mouse_pos - clip_rect.min.to_vec2()) / self.zoom + clip_start;
+                                let mouse_pos = (raw_mouse_pos - clip_rect.min.to_vec2()) / self.zoom + scene_min_pos;
                                 let (start, end) = if connection.port_id.kind() == PortKind::Input {
                                     (mouse_pos, port_positions[&connection])
                                 } else {
@@ -426,25 +431,35 @@ impl<'a> App<'a> {
 
                     if ui.response().secondary_clicked() {
                         self.new_circuit_ui = Some(ui.response().interact_pointer_pos().unwrap());
-                    }
-                    if let Some(pos) = self.new_circuit_ui {
-                        self.draw_new_circuit_ui(
-                            ui,
-                            pos,
-                            old_new_circuit_ui
-                        );
+                        old_new_circuit_ui = false;
                     }
 
                     mod_response
                 });
+
+            if let Some(pos) = self.new_circuit_ui {
+                self.draw_new_circuit_ui(
+                    ctx,
+                    pos,
+                    scene_rect,
+                    clip_rect,
+                    old_new_circuit_ui
+                );
+            }
 
             if let Some((id, inner)) = response.inner {
                 *self.connection_builder_pos.get_mut(&id).unwrap() += inner.drag_delta();
             }
         });
 
+        let (p_cam, p_zoom) = (self.cam_pos, self.zoom);
+
         self.cam_pos = scene_rect.center().to_vec2();
         self.zoom = window_size.x / (scene_rect.max.x - scene_rect.min.x);
+
+        if p_cam != self.cam_pos || p_zoom != self.zoom {
+            self.new_circuit_ui = None;
+        }
 
     }
 
@@ -505,6 +520,7 @@ impl eframe::App for App<'_>{
 }
 
 // Todo:
+// - Add scene coordinates view
 // - Add ability to save/load states
 // - Add ability to select/configure audio device before starting playback
 // - Clean up inspector ui
