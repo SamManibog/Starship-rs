@@ -1,4 +1,24 @@
-static mut NEXT_ID: u32 = 0;
+use std::cell::Cell;
+
+#[derive(Debug, Default)]
+pub struct CircuitIdManager {
+    next_id: u32
+}
+
+impl CircuitIdManager {
+    pub fn new() -> Self {
+        CircuitIdManager {
+            next_id: 0
+        }
+    }
+	
+	pub fn get_id(&mut self) -> CircuitId {
+        self.next_id += 1;
+        CircuitId {
+            id: self.next_id - 1
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CircuitId {
@@ -6,16 +26,6 @@ pub struct CircuitId {
 }
 
 impl CircuitId {
-    ///Creates a new circuit id
-    ///You must ensure there are no race conditions involving the simultaneous creation of other CircuitIds
-    pub unsafe fn new() -> Self {
-        let id = unsafe { NEXT_ID };
-        unsafe { NEXT_ID += 1 };
-        Self {
-            id
-        }
-    }
-
     pub fn raw(&self) -> u32 {
         self.id
     }

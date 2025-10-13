@@ -454,6 +454,14 @@ impl PlaybackBackendData {
         sample_rate: SampleRate
     ) -> Result<D::Stream, BuildStreamError> {
         match sample_format {
+            SampleFormat::I8 => {
+                device.build_output_stream(
+                    &config,
+                    self.stream_data_callback::<i8>(sample_rate),
+                    error_callback,
+                    timeout
+                )
+            },
             SampleFormat::I16 => {
                 device.build_output_stream(
                     config,
@@ -474,6 +482,14 @@ impl PlaybackBackendData {
                 device.build_output_stream(
                     &config,
                     self.stream_data_callback::<i64>(sample_rate),
+                    error_callback,
+                    timeout
+                )
+            },
+            SampleFormat::U8 => {
+                device.build_output_stream(
+                    &config,
+                    self.stream_data_callback::<u8>(sample_rate),
                     error_callback,
                     timeout
                 )

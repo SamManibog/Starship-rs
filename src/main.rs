@@ -21,7 +21,7 @@ fn main() -> eframe::Result {
 
     let builders = builder_defs![
         {ConstantBuilder: "Constant"}
-        {InterpolatorBuilder: "Constant"}
+        {InterpolatorBuilder: "Interpolator"}
         {RouterBuilder: "Router"}
         {OscillatorBuilder: "Oscillator"}
         {SwitchBuilder: "Switch"}

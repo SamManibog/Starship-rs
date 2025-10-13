@@ -1,13 +1,13 @@
-use std::{collections::{HashMap, HashSet}, sync::Arc};
+use std::{collections::{HashMap, HashSet}, sync::Arc, time::Instant};
 
-use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, Stream};
+use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, Device, Host, Stream, SupportedStreamConfig};
 use eframe;
 use egui::{
-    Align, Area, CentralPanel, Color32, Context, FontData, FontDefinitions, FontFamily, Frame, Label, MenuBar, Pos2, Rect, Response, RichText, Scene, ScrollArea, Sense, SidePanel, TextStyle, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
+    Align, Area, CentralPanel, Color32, ComboBox, Context, FontData, FontDefinitions, FontFamily, Frame, Id, Label, MenuBar, Modal, Pos2, Rect, Response, RichText, Scene, ScrollArea, Sense, SidePanel, TextStyle, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
 };
 
 use crate::{
-    circuit::{CircuitBuilder, CircuitBuilderSpecification, CircuitUiSlot}, circuit_id::{ CircuitId, CircuitPortId, ConnectionId, PortKind }, circuit_input::{ CircuitInput, PortInputState }, circuits::SpeakerBuilder, connection_builder::ConnectionBuilder, connection_manager::ConnectionManager, playback::PlaybackBackendData
+    circuit::{CircuitBuilder, CircuitBuilderSpecification, CircuitUiSlot}, circuit_id::{ CircuitId, CircuitIdManager, CircuitPortId, ConnectionId, PortKind }, circuit_input::{ CircuitInput, PortInputState }, circuits::SpeakerBuilder, connection_builder::ConnectionBuilder, connection_manager::ConnectionManager, playback::PlaybackBackendData
 };
 
 #[derive(Debug)]
@@ -27,6 +27,7 @@ enum AppMode {
 
 pub struct App<'a> {
     // circuit functionality
+    id_manager: CircuitIdManager,
     builders: &'a[CircuitBuilderSpecification],
     builder_ids: Vec<CircuitId>,
     builder_map: HashMap<CircuitId, Box<dyn CircuitBuilder>>,
@@ -40,7 +41,14 @@ pub struct App<'a> {
     zoom: f32,
     circuit_input: CircuitInput,
     inspector_focus: InspectorFocus,
-    new_circuit_ui: Option<Pos2>,
+    draw_new_circuit_ui: Option<Pos2>,
+
+    // io configuration ui
+    host: Host,
+    output_device: Option<Device>,
+    output_device_config: Option<SupportedStreamConfig>,
+    known_output_devices: Vec<Device>,
+    draw_settings_ui: bool,
 
     // playback data
     circuit_uis: Vec<CircuitUiSlot>,
@@ -78,8 +86,26 @@ impl<'a> App<'a> {
             Arc::new(style)
         });
 
+        //setup audio
+        let host = cpal::default_host();
+        let output_device = host.default_output_device()
+            .expect("No output device available.");
+
+        let output_device_config = output_device.default_output_config()
+            .expect("Default config not found.");
+
+        let known_output_devices = {
+            let iter_raw = host.output_devices();
+            if let Ok(iter) = iter_raw {
+                iter.collect()
+            } else {
+                Vec::new()
+            }
+        };
+
         // Return initialized state
         Self {
+            id_manager: Default::default(),
             builders,
             builder_ids: vec![],
             builder_map: HashMap::new(),
@@ -91,31 +117,48 @@ impl<'a> App<'a> {
             zoom: 1.0,
             circuit_input: Default::default(),
             inspector_focus: InspectorFocus::None,
-            new_circuit_ui: None,
+            draw_new_circuit_ui: None,
             stream: None,
             circuit_uis: Vec::new(),
             mode: AppMode::Editor,
+
+            host,
+            output_device: Some(output_device),
+            output_device_config: Some(output_device_config),
+            known_output_devices,
+            draw_settings_ui: false
         }
     }
 
     pub fn begin_playback(&mut self) {
-        //setup audio
-        let host = cpal::default_host();
-        let device = host.default_output_device().expect("No output device available.");
-        let default_config = device.default_output_config().expect("Default config not found.");
-
         println!(
             "Starting playback on '{}' with sample format {}.",
-            device.name().unwrap_or("N/A".to_string()),
-            device.default_output_config().unwrap().sample_format()
+            self.output_device
+                .as_ref()
+                .expect("no output device")
+                .name()
+                .unwrap_or("N/A".to_string()),
+            self.output_device
+                .as_ref()
+                .unwrap()
+                .default_output_config()
+                .unwrap()
+                .sample_format()
         );
 
         let error_callback = |err| eprintln!("an error occurred on the output audio stream: {}", err);
 
-        let sample_rate = default_config.sample_rate();
-        let sample_format = default_config.sample_format();
+        let sample_rate = self.output_device_config
+            .as_ref()
+            .expect("no device config")
+            .sample_rate();
+        let sample_format = self.output_device_config
+            .as_ref()
+            .unwrap()
+            .sample_format();
 
         //setup backend data
+        let build_backend_start = Instant::now();
         let (backend_data, frontend_data) = PlaybackBackendData::new(
             &self.builder_ids,
             &self.builder_map,
@@ -124,15 +167,27 @@ impl<'a> App<'a> {
             sample_rate.0,
             crate::constants::SAMPLE_MULTIPLIER
         );
+        let build_backend_end = Instant::now();
 
+        let config_copy = self.output_device_config.clone().unwrap();
+
+        let build_stream_start = Instant::now();
         let stream = backend_data.into_output_stream(
-            &device,
-            &default_config.into(),
+            self.output_device.as_ref().unwrap(),
+            &config_copy.into(),
             error_callback,
             None,
             sample_format,
             sample_rate
         ).expect("Audio stream could not be built.");
+        let build_stream_end = Instant::now();
+
+        println!(
+            "Backend Build Duration: {} ms\nStream Build Duration: {} ms",
+            (build_backend_end - build_backend_start).as_secs_f64() * 1000.0,
+            (build_stream_end - build_stream_start).as_secs_f64() * 1000.0,
+        );
+
         let _ = stream.play();
         self.stream = Some(stream);
         self.circuit_uis = frontend_data;
@@ -160,7 +215,7 @@ impl<'a> App<'a> {
         circuit_builder: Box<dyn CircuitBuilder>,
         position: Pos2
     ) -> CircuitId {
-        let id = unsafe { CircuitId::new() };
+        let id = self.id_manager.get_id();
         let frontend = ConnectionBuilder::new(id, circuit_builder.specification());
         self.builder_map.insert(frontend.id(), circuit_builder);
         self.builder_ids.push(frontend.id());
@@ -198,6 +253,45 @@ impl<'a> App<'a> {
         self.connection_builder_map.remove(&id);
         self.speakers.remove(&id);
         self.connections.remove_circuit(id);
+    }
+
+    fn draw_io_configuration_ui(
+        &mut self,
+        ui: &mut Ui
+    ) {
+        let title = RichText::new("Audio Settings").text_style(TextStyle::Heading);
+        ui.add(Label::new(title).wrap());
+        ui.separator();
+
+        let mut new_select_index = None;
+        ui.horizontal(|ui| {
+            ui.label("Audio Output Device");
+            let selected_device_text = format!(
+                "{}",
+                if let Some(device) = self.output_device.as_ref() {
+                    device.name().unwrap_or("[No Name]".to_string())
+                } else {
+                    "[None]".to_string()
+                }
+            );
+            ComboBox::from_id_salt("audio device")
+                .selected_text(selected_device_text)
+                .show_ui(ui, |ui| {
+                    for (i, device) in self.known_output_devices.iter().enumerate() {
+                        ui.selectable_value(
+                            &mut new_select_index,
+                            Some(i),
+                            device.name().unwrap_or("[No Name]".to_string())
+                        );
+                    }
+                });
+        });
+
+        if let Some(selected) = new_select_index {
+            self.output_device = Some(self.known_output_devices[selected].clone());
+        }
+
+        ui.separator();
     }
 
     /// Draws the ui for adding a new circuit at the given location
@@ -246,7 +340,7 @@ impl<'a> App<'a> {
         if old && !response.clicked() && ctx.input(|i| {
             i.pointer.any_click() || i.pointer.is_decidedly_dragging()
         }) {
-            self.new_circuit_ui = None;
+            self.draw_new_circuit_ui = None;
         }
     }
 
@@ -316,6 +410,10 @@ impl<'a> App<'a> {
     fn draw_editor_mode(&mut self, ctx: &Context) {
         TopBottomPanel::top("top_panel").show(ctx, |ui| {
             MenuBar::new().ui(ui, |ui| {
+                if ui.button("Settings").clicked() {
+                    self.draw_settings_ui = true;
+                }
+
                 if ui.button("Quit").clicked() {
                     ctx.send_viewport_cmd(ViewportCommand::Close);
                 }
@@ -330,9 +428,20 @@ impl<'a> App<'a> {
                         }
                     }
                 );
-
             });
         });
+
+        if self.draw_settings_ui {
+            Modal::new(Id::new("settings"))
+                .show(ctx, |ui| {
+                    self.draw_io_configuration_ui(ui);
+                    ui.vertical_centered(|ui| {
+                        if ui.button("Close").clicked() {
+                            self.draw_settings_ui = false;
+                        }
+                    })
+                });
+        }
 
         SidePanel::right("right_panel")
             .max_width(300.0)
@@ -341,7 +450,7 @@ impl<'a> App<'a> {
                 self.draw_inspector(ui);
             });
 
-        let mut old_new_circuit_ui = self.new_circuit_ui != None;
+        let mut old_new_circuit_ui = self.draw_new_circuit_ui != None;
 
         //A map CircuitPortId -> egui::Pos2
         //used to draw connections between ports
@@ -430,14 +539,14 @@ impl<'a> App<'a> {
                     }
 
                     if ui.response().secondary_clicked() {
-                        self.new_circuit_ui = Some(ui.response().interact_pointer_pos().unwrap());
+                        self.draw_new_circuit_ui = Some(ui.response().interact_pointer_pos().unwrap());
                         old_new_circuit_ui = false;
                     }
 
                     mod_response
                 });
 
-            if let Some(pos) = self.new_circuit_ui {
+            if let Some(pos) = self.draw_new_circuit_ui {
                 self.draw_new_circuit_ui(
                     ctx,
                     pos,
@@ -458,7 +567,7 @@ impl<'a> App<'a> {
         self.zoom = window_size.x / (scene_rect.max.x - scene_rect.min.x);
 
         if p_cam != self.cam_pos || p_zoom != self.zoom {
-            self.new_circuit_ui = None;
+            self.draw_new_circuit_ui = None;
         }
 
     }
@@ -498,7 +607,7 @@ impl<'a> App<'a> {
     }
 }
 
-impl eframe::App for App<'_>{
+impl eframe::App for App<'_> {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         // handle transition states
@@ -520,9 +629,9 @@ impl eframe::App for App<'_>{
 }
 
 // Todo:
-// - Add scene coordinates view
 // - Add ability to save/load states
 // - Add ability to select/configure audio device before starting playback
+// - Add mouse coordinates, zoom to editor
 // - Clean up inspector ui
 // - Make ports highlighted when focused
 // - Make it so that when hovering a delete connection button,
