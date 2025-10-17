@@ -1,21 +1,14 @@
-use std::{collections::{HashMap, HashSet}, sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant};
 
 use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, Device, Host, Stream, SupportedStreamConfig};
 use eframe;
 use egui::{
-    Align, Area, CentralPanel, Color32, ComboBox, Context, FontData, FontDefinitions, FontFamily, Frame, Id, Label, MenuBar, Modal, Pos2, Rect, Response, RichText, Scene, ScrollArea, Sense, SidePanel, TextStyle, TextWrapMode, TopBottomPanel, Ui, Vec2, ViewportCommand
+    Align, CentralPanel, ComboBox, Context, FontData, FontDefinitions, FontFamily, Id, Label, MenuBar, Modal, RichText, TextStyle, TextWrapMode, TopBottomPanel, Ui, ViewportCommand
 };
 
 use crate::{
-    circuit::{CircuitBuilder, CircuitBuilderSpecification, CircuitUiSlot}, circuit_id::{ CircuitId, CircuitIdManager, CircuitPortId, ConnectionId, PortKind }, circuit_input::{ CircuitInput, PortInputState }, circuits::SpeakerBuilder, connection_builder::ConnectionBuilder, connection_manager::ConnectionManager, playback::PlaybackBackendData
+    circuit::{CircuitBuilderSpecification, CircuitUiSlot}, patch_editor::PatchEditor
 };
-
-#[derive(Debug)]
-enum InspectorFocus {
-    None,
-    Port(CircuitPortId),
-    Circuit(CircuitId),
-}
 
 #[derive(Debug, PartialEq, Eq)]
 enum AppMode {
@@ -26,22 +19,7 @@ enum AppMode {
 }
 
 pub struct App<'a> {
-    // circuit functionality
-    id_manager: CircuitIdManager,
-    builders: &'a[CircuitBuilderSpecification],
-    builder_ids: Vec<CircuitId>,
-    builder_map: HashMap<CircuitId, Box<dyn CircuitBuilder>>,
-    connection_builder_map: HashMap<CircuitId, ConnectionBuilder>,
-    connection_builder_pos: HashMap<CircuitId, Pos2>,
-    speakers: HashSet<CircuitId>,
-    connections: ConnectionManager,
-
-    // editor ui
-    cam_pos: egui::Vec2,
-    zoom: f32,
-    circuit_input: CircuitInput,
-    inspector_focus: InspectorFocus,
-    draw_new_circuit_ui: Option<Pos2>,
+    patch_editor: PatchEditor<'a>,
 
     // io configuration ui
     host: Host,
@@ -105,19 +83,8 @@ impl<'a> App<'a> {
 
         // Return initialized state
         Self {
-            id_manager: Default::default(),
-            builders,
-            builder_ids: vec![],
-            builder_map: HashMap::new(),
-        	connection_builder_map: HashMap::new(),
-            connection_builder_pos: HashMap::new(),
-            speakers: HashSet::new(),
-            connections: Default::default(),
-            cam_pos: egui::vec2(0.0, 0.0),
-            zoom: 1.0,
-            circuit_input: Default::default(),
-            inspector_focus: InspectorFocus::None,
-            draw_new_circuit_ui: None,
+            patch_editor: PatchEditor::new(builders),
+
             stream: None,
             circuit_uis: Vec::new(),
             mode: AppMode::Editor,
@@ -159,11 +126,7 @@ impl<'a> App<'a> {
 
         //setup backend data
         let build_backend_start = Instant::now();
-        let (backend_data, frontend_data) = PlaybackBackendData::new(
-            &self.builder_ids,
-            &self.builder_map,
-            &self.connections,
-            &self.speakers,
+        let (backend_data, frontend_data) = self.patch_editor.playback_data(
             sample_rate.0,
             crate::constants::SAMPLE_MULTIPLIER
         );
@@ -196,63 +159,6 @@ impl<'a> App<'a> {
     pub fn end_playback(&mut self) {
         self.stream = None;
         self.circuit_uis = Vec::new();
-    }
-
-    /// Adds a new speaker at the given position
-    /// Returns the id of the new speaker
-	pub fn add_speaker(&mut self, position: Pos2) -> CircuitId {
-        let builder = Box::new(SpeakerBuilder::new());
-        let id = self.add_circuit_builder(builder, position);
-        self.speakers.insert(id);
-        id
-    }
-
-    /// Adds a new circuit at the given position
-    /// Do not use this method to add a speaker circuit. Use add_speaker() instead.
-    /// Returns the id of the new circuit
-    pub fn add_circuit_builder(
-        &mut self,
-        circuit_builder: Box<dyn CircuitBuilder>,
-        position: Pos2
-    ) -> CircuitId {
-        let id = self.id_manager.get_id();
-        let frontend = ConnectionBuilder::new(id, circuit_builder.specification());
-        self.builder_map.insert(frontend.id(), circuit_builder);
-        self.builder_ids.push(frontend.id());
-        self.connection_builder_pos.insert(frontend.id(), position);
-        self.connection_builder_map.insert(frontend.id(), frontend);
-        id
-    }
-
-    /// Adds a connection for the two given circuit ports
-    pub fn add_connection(&mut self, src: CircuitPortId, dst: CircuitPortId) {
-        self.connections.add_connection(ConnectionId::new(src, dst));
-    }
-
-    /// Removes the circuit with the given id
-    pub fn remove_circuit_builder(&mut self, id: CircuitId) {
-        //unfocus connection or builder if it was deleted
-        match self.inspector_focus {
-            InspectorFocus::Port(focus_id) => {
-                if focus_id.circuit_id == id {
-                    self.inspector_focus = InspectorFocus::None;
-                }
-            }
-            InspectorFocus::Circuit(focus_id) => {
-                if focus_id == id {
-                    self.inspector_focus = InspectorFocus::None;
-                }
-            }
-            InspectorFocus::None => {}
-        }
-
-        //delete builder
-        self.builder_ids.retain(|entry| *entry != id);
-        self.builder_map.remove(&id);
-        self.connection_builder_pos.remove(&id);
-        self.connection_builder_map.remove(&id);
-        self.speakers.remove(&id);
-        self.connections.remove_circuit(id);
     }
 
     fn draw_io_configuration_ui(
@@ -294,119 +200,6 @@ impl<'a> App<'a> {
         ui.separator();
     }
 
-    /// Draws the ui for adding a new circuit at the given location
-    fn draw_new_circuit_ui(
-        &mut self,
-        ctx: &Context,
-        position: Pos2,
-        scene_rect: Rect,
-        scene_clip_rect: Rect,
-        old: bool
-    ) {
-        let true_pos = (position - scene_rect.min).to_pos2() * self.zoom + scene_clip_rect.min.to_vec2();
-
-        let response = Area::new(egui::Id::new("new_circuit_ui"))
-            .sense(Sense::click_and_drag())
-            .fixed_pos(true_pos)
-            .show(ctx, |ui| {
-                Frame::new()
-                    .fill(ui.style().visuals.window_fill)
-                    .stroke(ui.style().visuals.window_stroke)
-                    .inner_margin(4.0)
-                    .corner_radius(2)
-                    .show(ui, |ui| {
-                        ui.label("Add a circuit");
-                        ui.separator();
-                        ScrollArea::vertical().show(ui, |ui| {
-                            for builder in self.builders {
-                                if ui.button(&builder.display_name).clicked() {
-                                    let id = self.add_circuit_builder(
-                                        (builder.instance)(),
-                                        position// + self.cam_pos
-                                    );
-                                    self.inspector_focus = InspectorFocus::Circuit(id);
-                                }
-                            }
-                            if ui.button("Speaker").clicked() {
-                                let id = self.add_speaker(position);// + self.cam_pos);
-                                self.inspector_focus = InspectorFocus::Circuit(id);
-                            }
-                        });
-                    })
-            }).response;
-
-        // If there was some click off of the ui, close it
-        // If there was a click on one of the buttons, will cancel too
-        if old && !response.clicked() && ctx.input(|i| {
-            i.pointer.any_click() || i.pointer.is_decidedly_dragging()
-        }) {
-            self.draw_new_circuit_ui = None;
-        }
-    }
-
-    /// Draws the inspector to the given ui
-    fn draw_inspector(&mut self, ui: &mut Ui) {
-        if let InspectorFocus::Port(id) = self.inspector_focus {
-            {
-                let name = self.builder_map[&id.circuit_id()].name();
-                let spec = self.connection_builder_map[&id.circuit_id()].specification();
-                let port_name = match id.port_id.kind() {
-                    PortKind::Input => spec.input_names[id.port_id.index()],
-                    PortKind::Output => spec.output_names[id.port_id.index()],
-                };
-                let title = RichText::new(port_name).text_style(TextStyle::Heading);
-                ui.add(Label::new(title).wrap());
-                ui.add(Label::new(name).wrap());
-            }
-            ui.separator();
-            let connected_raw = self.connections.port_query_ports(id);
-            let mut remove_connection = None;
-            if let Some(connected) = connected_raw {
-                for port in connected {
-                    let circuit_name = self.builder_map[&id.circuit_id()].name();
-                    let spec = self.connection_builder_map[&port.circuit_id()].specification();
-                    let port_name = match port.port_id.kind() {
-                        PortKind::Input => spec.input_names[port.port_id.index()],
-                        PortKind::Output => spec.output_names[port.port_id.index()],
-                    };
-                    let button_text = format!(
-                        "Circuit: {}, Port: {}", 
-                        circuit_name,
-                        port_name
-                    );
-                    if ui.button(button_text).clicked() {
-                        remove_connection = Some(port);
-                    }
-                }
-            }
-            if let Some(connection) = remove_connection {
-                self.connections.remove_connection(ConnectionId::new_auto(
-                    *connection,
-                    id
-                ));
-            }
-        } else if let InspectorFocus::Circuit(id) = self.inspector_focus {
-            let name = self.builder_map[&id].name();
-            let title = RichText::new(name).text_style(TextStyle::Heading);
-            ui.horizontal(|ui| {
-                ui.label(title);
-                if ui.small_button("X").clicked() {
-                    self.remove_circuit_builder(id);
-                }
-            });
-            ui.separator();
-            if let Some(builder) = self.builder_map.get_mut(&id) {
-                builder.show(ui);
-            }
-
-        } else {
-            let tip = Label::new("Click a port or circuit to focus it. Right click in the central area to add a circuit.")
-                .wrap();
-            ui.add(tip);
-        }
-        ui.separator();
-    }
-
     fn draw_editor_mode(&mut self, ctx: &Context) {
         TopBottomPanel::top("top_panel").show(ctx, |ui| {
             MenuBar::new().ui(ui, |ui| {
@@ -443,132 +236,10 @@ impl<'a> App<'a> {
                 });
         }
 
-        SidePanel::right("right_panel")
-            .max_width(300.0)
-            .min_width(200.0)
-            .show(ctx, |ui| {
-                self.draw_inspector(ui);
+        CentralPanel::default()
+            .show(&ctx, |ui| {
+                self.patch_editor.draw(ui);
             });
-
-        let mut old_new_circuit_ui = self.draw_new_circuit_ui != None;
-
-        //A map CircuitPortId -> egui::Pos2
-        //used to draw connections between ports
-        let mut port_positions = HashMap::<CircuitPortId, Pos2>::new();
-
-        let mut scene_rect = Rect::NOTHING;
-        let mut window_size = Vec2::ZERO;
-        let mut clip_rect = Rect::NOTHING;
-
-        CentralPanel::default().show(ctx, |ui| {
-            window_size = ui.available_size();
-            scene_rect = Rect::from_center_size(
-                self.cam_pos.to_pos2(),
-                window_size / self.zoom
-            );
-            let scene_min_pos = scene_rect.min.to_vec2();
-            clip_rect = ui.response().rect;
-            let response = Scene::new()
-                .zoom_range(Self::MIN_ZOOM..=Self::MAX_ZOOM)
-                .sense(Sense::click_and_drag())
-                .show(ui, &mut scene_rect, |ui| {
-
-                    let mut mod_response: Option<(CircuitId, Response)> = None;
-                    for id in self.builder_ids.iter_mut() {
-                        let highlight = match self.inspector_focus {
-                            InspectorFocus::Port(port) => port.circuit_id == *id,
-                            InspectorFocus::Circuit(circuit) => circuit == *id,
-                            InspectorFocus::None => false
-                        };
-                        let response = self.connection_builder_map.get_mut(id).unwrap().show(
-                            self.connection_builder_pos[id],// - self.cam_pos,
-                            ui,
-                            &mut port_positions,
-                            &mut self.circuit_input,
-                            highlight,
-                            self.builder_map[&id].name()
-                        );
-                        if response.dragged() || response.clicked() {
-                            self.inspector_focus = InspectorFocus::Circuit(*id);
-                        }
-                        if response.dragged() {
-                            mod_response = Some((*id, response))
-                        }
-                    }
-
-                    //Draw Connections and handle connection state
-                    {
-                        let painter = ui.painter();
-
-                        self.connections.draw_connections(painter, &port_positions);
-
-                        //draw new connections and handle new connection state
-                        if let PortInputState::StartConnection(connection) = &self.circuit_input.state() {
-                            self.inspector_focus = InspectorFocus::Port(*connection);
-                            //ensure we are still dragging and on-screen
-                            let mouse_pos_opt = ui.input(|input| {
-                                if input.pointer.primary_released() {
-                                    None
-                                } else {
-                                    input.pointer.latest_pos()
-                                }
-                            });
-
-                            //if mouse state is good, draw the connection
-                            //otherwise, cancel the connection
-                            if let Some(raw_mouse_pos) = mouse_pos_opt {
-                                let mouse_pos = (raw_mouse_pos - clip_rect.min.to_vec2()) / self.zoom + scene_min_pos;
-                                let (start, end) = if connection.port_id.kind() == PortKind::Input {
-                                    (mouse_pos, port_positions[&connection])
-                                } else {
-                                    (port_positions[&connection], mouse_pos)
-                                };
-                                //Self::draw_connection(painter, start, end);
-                                ConnectionManager::draw_connection(painter, Color32::WHITE, start, end);
-                            } else {
-                                self.circuit_input.clear();
-                            }
-
-                        } else if let PortInputState::FinalizeConnection(start, end) = *self.circuit_input.state() {
-                            self.add_connection(start, end);
-                            self.circuit_input.clear();
-                        } else if let PortInputState::Click(id) = *self.circuit_input.state() {
-                            self.inspector_focus = InspectorFocus::Port(id);
-                            self.circuit_input.clear();
-                        }
-                    }
-
-                    if ui.response().secondary_clicked() {
-                        self.draw_new_circuit_ui = Some(ui.response().interact_pointer_pos().unwrap());
-                        old_new_circuit_ui = false;
-                    }
-
-                    mod_response
-                });
-
-            if let Some(pos) = self.draw_new_circuit_ui {
-                self.draw_new_circuit_ui(
-                    ctx,
-                    pos,
-                    scene_rect,
-                    clip_rect,
-                    old_new_circuit_ui
-                );
-            }
-
-            if let Some((id, inner)) = response.inner {
-                *self.connection_builder_pos.get_mut(&id).unwrap() += inner.drag_delta();
-            }
-        });
-
-        let (p_cam, p_zoom) = (self.cam_pos, self.zoom);
-
-        self.cam_pos = scene_rect.center().to_vec2();
-        self.zoom = window_size.x / (scene_rect.max.x - scene_rect.min.x);
-
-        if p_cam != self.cam_pos || p_zoom != self.zoom {
-            self.draw_new_circuit_ui = None;
-        }
 
     }
 
@@ -629,6 +300,9 @@ impl eframe::App for App<'_> {
 }
 
 // Todo:
+// - Add ability to select audio host
+// - Add error handling for devices being unavailable.
+// - Add ability to modify stream configuration
 // - Add ability to save/load states
 // - Add ability to select/configure audio device before starting playback
 // - Add mouse coordinates, zoom to editor

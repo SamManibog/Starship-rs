@@ -1,6 +1,7 @@
 use std::{fmt::Display, str::FromStr};
 
 use egui::Ui;
+use rustfft::num_complex::Complex;
 
 use crate::pitch::Pitch;
 
@@ -189,4 +190,3 @@ macro_rules! non_negative_checkable_impl {
 }
 
 non_negative_checkable_impl!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64);
-

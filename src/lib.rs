@@ -8,6 +8,8 @@ pub mod circuit_input;
 
 pub mod circuits;
 
+pub mod patch;
+
 pub mod connection_builder;
 
 pub mod connection_manager;

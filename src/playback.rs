@@ -6,7 +6,7 @@ use crate::{
     circuit::{BuildState, Circuit, CircuitBuilder, CircuitUiSlot}, circuit_id::{CircuitId, CircuitPortId}, connection_manager::ConnectionManager, pitch::TuningSystem
 };
 
-pub struct PlaybackBackendData {
+pub struct PatchPlaybackData {
     /// The list of circuits used in processing. In order.
     circuits: Vec<Box<dyn Circuit>>,
 
@@ -75,7 +75,7 @@ impl std::fmt::Debug for ConnectionBehavior {
     }
 }
 
-impl PlaybackBackendData {
+impl PatchPlaybackData {
     /// Constructs self as well as the associated ui slots
     pub fn new(
         ids: &[CircuitId],
