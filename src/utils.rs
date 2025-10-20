@@ -1,7 +1,6 @@
 use std::{fmt::Display, str::FromStr};
 
 use egui::Ui;
-use rustfft::num_complex::Complex;
 
 use crate::pitch::Pitch;
 

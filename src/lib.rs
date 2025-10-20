@@ -18,6 +18,8 @@ pub mod constants;
 
 pub mod utils;
 
+pub mod compiled_patch;
+
 pub mod playback;
 
 pub mod pitch;

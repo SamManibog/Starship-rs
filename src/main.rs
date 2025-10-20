@@ -1,6 +1,6 @@
 use starship_rust::{
     circuit::CircuitBuilderSpecification as Cbs,
-    circuits::{ConstantBuilder, InterpolatorBuilder, OscillatorBuilder, RouterBuilder, SampleQuantizerBuilder, SwitchBuilder},
+    circuits::{InterpolatorBuilder, OscillatorBuilder, RouterBuilder, SampleQuantizerBuilder, SwitchBuilder},
 };
 
 macro_rules! builder_defs {
@@ -20,7 +20,6 @@ fn main() -> eframe::Result {
     };
 
     let builders = builder_defs![
-        {ConstantBuilder: "Constant"}
         {InterpolatorBuilder: "Interpolator"}
         {RouterBuilder: "Router"}
         {OscillatorBuilder: "Oscillator"}

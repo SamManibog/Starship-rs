@@ -7,7 +7,7 @@ use egui::{
 };
 
 use crate::{
-    circuit::{CircuitBuilderSpecification, CircuitUiSlot}, patch_editor::PatchEditor
+    circuit::{CircuitBuilderSpecification, CircuitUiSlot}, patch::PatchEditor
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -300,6 +300,7 @@ impl eframe::App for App<'_> {
 }
 
 // Todo:
+// - See connection_builder, write specificationwrapper class to handle special cases
 // - Add ability to select audio host
 // - Add error handling for devices being unavailable.
 // - Add ability to modify stream configuration

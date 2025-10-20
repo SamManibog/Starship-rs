@@ -3,7 +3,7 @@ use std::collections::{HashSet, HashMap};
 use egui::{Pos2, Ui, Label, RichText, TextStyle, Rect, Context, Frame, Sense, Area, Scene, Response, Color32, ScrollArea, Vec2, CentralPanel, SidePanel};
 
 use crate::{
-    circuit::{CircuitBuilder, CircuitBuilderSpecification, CircuitUiSlot}, circuit_id::{CircuitId, CircuitIdManager, CircuitPortId, ConnectionId, PortKind}, circuit_input::{CircuitInput, PortInputState}, circuits::SpeakerBuilder, connection_builder::ConnectionBuilder, connection_manager::ConnectionManager, playback::PatchPlaybackData
+    circuit::{CircuitBuilder, CircuitBuilderSpecification, CircuitUiSlot}, circuit_id::{CircuitId, CircuitIdManager, CircuitPortId, ConnectionId, PortKind}, circuit_input::{CircuitInput, PortInputState}, circuits::{ConstantBuilder, SpecialInputBuilder, SpecialOutputBuilder}, connection_builder::ConnectionBuilder, connection_manager::ConnectionManager, playback::CompiledPatch
 };
 
 #[derive(Debug)]
@@ -15,13 +15,31 @@ pub enum InspectorFocus {
 
 #[derive(Debug)]
 pub struct Patch {
+    // generates new unique ids
     id_manager: CircuitIdManager,
+
+    // every used id of a circuit, for fast iteration
     builder_ids: Vec<CircuitId>,
+
+    // maps a circuit id to its builder
     builder_map: HashMap<CircuitId, Box<dyn CircuitBuilder>>,
+
+    // maps a circuit id to its connection builder
     connection_builder_map: HashMap<CircuitId, ConnectionBuilder>,
+
+    // maps a circuit id to the position of its connection builder
     connection_builder_pos: HashMap<CircuitId, Pos2>,
-    speakers: HashSet<CircuitId>,
+
+    // keeps track of all connections in the patch
     connections: ConnectionManager,
+
+    // a list of sets of ids that are special inputs/outputs
+    input_ids: Vec<HashSet<CircuitId>>,
+    output_ids: Vec<HashSet<CircuitId>>,
+
+    // a list of possible special input/output names (order matters)
+    inputs: Vec<String>,
+    outputs: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -39,7 +57,11 @@ impl<'a> PatchEditor<'a> {
     const MIN_ZOOM: f32 = 0.25;
     const MAX_ZOOM: f32 = 1.0;
 
-    pub fn new(builders: &'a[CircuitBuilderSpecification]) -> Self {
+    pub fn new(
+        builders: &'a[CircuitBuilderSpecification],
+        inputs: Vec<String>,
+        outputs: Vec<String>,
+    ) -> Self {
         Self {
             cam_pos: egui::vec2(0.0, 0.0),
             zoom: 1.0,
@@ -47,7 +69,7 @@ impl<'a> PatchEditor<'a> {
             inspector_focus: InspectorFocus::None,
             draw_new_circuit_ui: None,
             builders,
-            data: Patch::new()
+            data: Patch::new(inputs, outputs)
         }
     }
 
@@ -204,17 +226,36 @@ impl<'a> PatchEditor<'a> {
                         ui.label("Add a circuit");
                         ui.separator();
                         ScrollArea::vertical().show(ui, |ui| {
+                            if ui.button("Constant").clicked() {
+                                let id = self.add_constant(position);
+                                self.inspector_focus = InspectorFocus::Circuit(id);
+                            }
                             for builder in self.builders {
                                 if ui.button(&builder.display_name).clicked() {
-                                    let id = self.add_circuit_builder(
+                                    let id = self.add_circuit_by_builder(
                                         (builder.instance)(),
-                                        position// + self.cam_pos
+                                        position
                                     );
                                     self.inspector_focus = InspectorFocus::Circuit(id);
                                 }
                             }
-                            if ui.button("Speaker").clicked() {
-                                let id = self.add_speaker(position);// + self.cam_pos);
+                            let mut add_input = None;
+                            for (index, input) in self.data.inputs.iter().enumerate() {
+                                if ui.button(input).clicked() {
+                                    add_input = Some(index);
+                                }
+                            }
+                            let mut add_output = None;
+                            for (index, output) in self.data.outputs.iter().enumerate() {
+                                if ui.button(output).clicked() {
+                                    add_output = Some(index);
+                                }
+                            }
+                            if let Some(index) = add_input {
+                                let id = self.add_input(index, position);
+                                self.inspector_focus = InspectorFocus::Circuit(id);
+                            } else if let Some(index) = add_output {
+                                let id = self.add_output(index, position);
                                 self.inspector_focus = InspectorFocus::Circuit(id);
                             }
                         });
@@ -292,19 +333,27 @@ impl<'a> PatchEditor<'a> {
         ui.separator();
     }
 
-	pub fn add_speaker(&mut self, position: Pos2) -> CircuitId {
-        self.data.add_speaker(position)
+    pub fn add_constant(&mut self, position: Pos2) -> CircuitId {
+        self.data.add_constant(position)
+    }
+
+    pub fn add_input(&mut self, index: usize, position: Pos2) -> CircuitId {
+        self.data.add_input(index, position)
+    }
+
+    pub fn add_output(&mut self, index: usize, position: Pos2) -> CircuitId {
+        self.data.add_output(index, position)
     }
 
     /// Adds a new circuit at the given position
     /// Do not use this method to add a speaker circuit. Use add_speaker() instead.
     /// Returns the id of the new circuit
-    pub fn add_circuit_builder(
+    pub fn add_circuit_by_builder(
         &mut self,
         circuit_builder: Box<dyn CircuitBuilder>,
         position: Pos2
     ) -> CircuitId {
-        self.data.add_circuit_builder(circuit_builder, position)
+        self.data.add_circuit_by_builder(circuit_builder, position)
     }
 
     /// Adds a connection for the two given circuit ports
@@ -336,14 +385,29 @@ impl<'a> PatchEditor<'a> {
         &self,
         sample_rate: u32,
         sample_multiplier: f32
-    ) -> (PatchPlaybackData, Vec<CircuitUiSlot>) {
-        self.data.playback_data(sample_rate, sample_multiplier)
+    ) -> (CompiledPatch, Vec<CircuitUiSlot>) {
+        self.data.compile(sample_rate, sample_multiplier)
     }
 
 }
 
 impl Patch {
-    pub fn new() -> Self {
+    pub fn new(inputs: Vec<String>, outputs: Vec<String>) -> Self {
+        let input_ids = {
+            let mut map = Vec::new();
+            for _ in &inputs {
+                map.push(HashSet::new());
+            }
+            map
+        };
+        let output_ids = {
+            let mut map = Vec::new();
+            for _ in &outputs {
+                map.push(HashSet::new());
+            }
+            map
+        };
+
         // Return initialized state
         Self {
             id_manager: Default::default(),
@@ -351,33 +415,80 @@ impl Patch {
             builder_map: HashMap::new(),
         	connection_builder_map: HashMap::new(),
             connection_builder_pos: HashMap::new(),
-            speakers: HashSet::new(),
             connections: Default::default(),
+            input_ids,
+            output_ids,
+            inputs,
+            outputs
         }
     }
 
-	pub fn add_speaker(&mut self, position: Pos2) -> CircuitId {
-        let builder = Box::new(SpeakerBuilder::new());
-        let id = self.add_circuit_builder(builder, position);
-        self.speakers.insert(id);
+    pub fn inputs(&self) -> &[String] {
+        &self.inputs
+    }
+
+    pub fn outputs(&self) -> &[String] {
+        &self.outputs
+    }
+
+	pub fn add_constant(&mut self, position: Pos2) -> CircuitId {
+        let id = self.id_manager.get_id();
+        let builder = Box::new(ConstantBuilder::new());
+        let frontend = ConnectionBuilder::new_constant(id, builder.data());
+        self.add_circuit(builder, frontend, position);
         id
     }
 
-    /// Adds a new circuit at the given position
-    /// Do not use this method to add a speaker circuit. Use add_speaker() instead.
+    /// Convenience method. Adds a new input circuit at the given position by its index in
+    /// self.inputs.
+    pub fn add_input(&mut self, index: usize, position: Pos2) -> CircuitId {
+        debug_assert!(index < self.inputs.len(), "Index must be <= the number of allowed inputs.");
+        let id = self.id_manager.get_id();
+        let name = self.inputs[index].clone();
+        let builder = Box::new(SpecialInputBuilder::new(name.clone()));
+        let frontend = ConnectionBuilder::new_special_input(id, name);
+        self.add_circuit(builder, frontend, position);
+        id
+    }
+
+    /// Convenience method. Adds a new output circuit at the given position by its index in
+    /// self.outputs.
+    pub fn add_output(&mut self, index: usize, position: Pos2) -> CircuitId {
+        debug_assert!(index < self.outputs.len(), "Index must be <= the number of allowed inputs.");
+        let id = self.id_manager.get_id();
+        let name = self.outputs[index].clone();
+        let builder = Box::new(SpecialOutputBuilder::new(name.clone()));
+        let frontend = ConnectionBuilder::new_special_output(id, name);
+        self.add_circuit(builder, frontend, position);
+        id
+    }
+
+    /// Convenience method. Adds a new circuit at the given position
+    /// Do not use this method to add input or output circuits. Use add_input()/add_output().
+    /// Do not use this method to add a constant circuit. Use add_constant().
     /// Returns the id of the new circuit
-    pub fn add_circuit_builder(
+    pub fn add_circuit_by_builder(
         &mut self,
         circuit_builder: Box<dyn CircuitBuilder>,
         position: Pos2
     ) -> CircuitId {
         let id = self.id_manager.get_id();
         let frontend = ConnectionBuilder::new(id, circuit_builder.specification());
-        self.builder_map.insert(frontend.id(), circuit_builder);
-        self.builder_ids.push(frontend.id());
-        self.connection_builder_pos.insert(frontend.id(), position);
-        self.connection_builder_map.insert(frontend.id(), frontend);
+        self.add_circuit(circuit_builder, frontend, position);
         id
+    }
+
+    /// Adds the circuit's associated builder and connection builder to the patch at the given position
+    pub fn add_circuit(
+        &mut self,
+        circuit_builder: Box<dyn CircuitBuilder>,
+        connection_builder: ConnectionBuilder,
+        position: Pos2
+    ) {
+        self.builder_map.insert(connection_builder.id(), circuit_builder);
+        self.builder_ids.push(connection_builder.id());
+        self.connection_builder_pos.insert(connection_builder.id(), position);
+        self.connection_builder_map.insert(connection_builder.id(), connection_builder);
     }
 
     /// Adds a connection for the two given circuit ports
@@ -391,21 +502,29 @@ impl Patch {
         self.builder_map.remove(&id);
         self.connection_builder_pos.remove(&id);
         self.connection_builder_map.remove(&id);
-        self.speakers.remove(&id);
         self.connections.remove_circuit(id);
+        
+        // remove circuit from input, output ids
+        for set in self.input_ids.iter_mut() {
+            set.remove(&id);
+        }
+        for set in self.output_ids.iter_mut() {
+            set.remove(&id);
+        }
     }
 
-    /// Creates playback data for the patch
-    pub fn playback_data(
+    /// Creates the playback data for the patch
+    pub fn compile(
         &self,
         sample_rate: u32,
         sample_multiplier: f32
-    ) -> (PatchPlaybackData, Vec<CircuitUiSlot>) {
-        PatchPlaybackData::new(
+    ) -> (CompiledPatch, Vec<CircuitUiSlot>) {
+        CompiledPatch::new(
             &self.builder_ids,
             &self.builder_map,
             &self.connections,
-            &self.speakers,
+            &self.input_ids,
+            &self.output_ids,
             sample_rate,
             sample_multiplier
         )

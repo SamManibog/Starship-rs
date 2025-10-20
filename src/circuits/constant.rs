@@ -1,21 +1,19 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::{circuit::{BuildState, Circuit, CircuitBuilder, CircuitSpecification}, utils::PitchOrValue};
 
 #[derive(Debug, Clone)]
 pub struct ConstantBuilder {
+    data: Rc<RefCell<ConstantBuilderData>>
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstantBuilderData {
     value: PitchOrValue<f32>,
     text: String
 }
 
-impl ConstantBuilder {
-    const SPECIFICATION: CircuitSpecification = CircuitSpecification {
-        output_names: &["Out"],
-        input_names: &[],
-        size: egui::vec2(100.0, 100.0),
-        playback_size: None,
-    };
-
-    const NAME: &'static str = "Constant";
-
+impl ConstantBuilderData {
     pub fn new() -> Self {
         let value = PitchOrValue::Value(1.0);
         Self {
@@ -23,6 +21,32 @@ impl ConstantBuilder {
             text: value.to_string()
         }
     }
+
+    pub fn show(&mut self, ui: &mut egui::Ui) {
+        crate::utils::pitch_or_number_input(ui, &mut self.text, &mut self.value);
+    }
+}
+
+impl ConstantBuilder {
+    pub const SPECIFICATION: CircuitSpecification = CircuitSpecification {
+        output_names: &["Out"],
+        input_names: &[],
+        size: egui::vec2(150.0, 100.0),
+        playback_size: None,
+    };
+
+    const NAME: &'static str = "Constant";
+
+    pub fn new() -> Self {
+        Self {
+            data: Rc::new(RefCell::new(ConstantBuilderData::new())),
+        }
+    }
+
+    pub fn data(&self) -> Rc<RefCell<ConstantBuilderData>> {
+        self.data.clone()
+    }
+
 }
 
 impl CircuitBuilder for ConstantBuilder {
@@ -31,7 +55,7 @@ impl CircuitBuilder for ConstantBuilder {
     }
 
     fn show(&mut self, ui: &mut egui::Ui) {
-        crate::utils::pitch_or_number_input(ui, &mut self.text, &mut self.value);
+        self.data.borrow_mut().show(ui);
     }
 
     fn specification(&self) -> &'static CircuitSpecification {
@@ -39,7 +63,7 @@ impl CircuitBuilder for ConstantBuilder {
     }
 
     fn build(&self, state: &BuildState) -> Box<dyn Circuit> {
-        let value = match self.value {
+        let value = match self.data().borrow().value {
             PitchOrValue::Value(val) => val,
             PitchOrValue::Pitch(pitch) => {
                 state.tuning.get_pitch_frequency(&pitch)
