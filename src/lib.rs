@@ -24,3 +24,11 @@ pub mod playback;
 
 pub mod pitch;
 
+pub mod sequencers;
+
+pub mod live_plugin_id;
+
+pub mod bus;
+
+mod id_manager;
+pub use id_manager::IdManager;

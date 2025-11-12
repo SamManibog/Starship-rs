@@ -1,41 +1,6 @@
-use std::cell::Cell;
+pub type CircuitIdManager = crate::IdManager<CircuitId>;
 
-#[derive(Debug, Default)]
-pub struct CircuitIdManager {
-    next_id: u32
-}
-
-impl CircuitIdManager {
-    pub fn new() -> Self {
-        CircuitIdManager {
-            next_id: 0
-        }
-    }
-	
-	pub fn get_id(&mut self) -> CircuitId {
-        self.next_id += 1;
-        CircuitId {
-            id: self.next_id - 1
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CircuitId {
-    id: u32
-}
-
-impl CircuitId {
-    pub fn raw(&self) -> u32 {
-        self.id
-    }
-}
-
-impl std::fmt::Debug for CircuitId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CircuitId: {}", self.id)
-    }
-}
+pub type CircuitId = u32;
 
 ///Designator for an input or output port
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

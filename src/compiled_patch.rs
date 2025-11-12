@@ -547,6 +547,7 @@ impl CompiledPatch {
         self.circuit_input_buffer = save_buffer;
     }
 
+    /*
     pub fn get_sample<T: Sample + FromSample<f32>>(
         &mut self,
         delta: f32
@@ -661,6 +662,7 @@ impl CompiledPatch {
             _ => panic!("Unsupported stream format.")
         }
     }
+    */
 
 }
 
