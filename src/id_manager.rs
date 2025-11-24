@@ -46,6 +46,32 @@ impl<T: From<u32> + Into<u32>> IdManager<T> {
         }
     }
 
+    /*
+    /// Marks the given id as in use
+    /// Returns true if the id was previously considered not in use
+    pub fn mark_used(&mut self, id: T) -> bool {
+        let numeric_id: u32 = id.into();
+        if let Some(index) = self.search_unused(numeric_id) {
+            if self.unused[index].0 == numeric_id {
+                if self.unused[index].1 == numeric_id {
+                    self.unused.remove(index);
+                } else {
+                    self.unused[index].0 += 1;
+                }
+            } else if self.unused[index].1 == numeric_id {
+                self.unused[index].1 -= 1;
+            } else {
+                let new_range = (self.unused[index].0, numeric_id - 1);
+                self.unused[index].0 = numeric_id + 1;
+                self.unused.insert(index, new_range);
+            }
+            true
+        } else {
+            false
+        }
+    }
+    */
+
     /// Gets the id from the id manager
     pub fn get_id(&mut self) -> Option<T> {
         match self.extract_min() {

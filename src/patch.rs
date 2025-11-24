@@ -108,7 +108,7 @@ impl<'a> PatchEditor<'a> {
                     let mut mod_response: Option<(CircuitId, Response)> = None;
                     for id in self.data.builder_ids.iter_mut() {
                         let highlight = match self.inspector_focus {
-                            InspectorFocus::Port(port) => port.circuit_id == *id,
+                            InspectorFocus::Port(port) => port.unit_id == *id,
                             InspectorFocus::Circuit(circuit) => circuit == *id,
                             InspectorFocus::None => false
                         };
@@ -366,7 +366,7 @@ impl<'a> PatchEditor<'a> {
         //unfocus connection or builder if it was deleted
         match self.inspector_focus {
             InspectorFocus::Port(focus_id) => {
-                if focus_id.circuit_id == id {
+                if focus_id.unit_id == id {
                     self.inspector_focus = InspectorFocus::None;
                 }
             }

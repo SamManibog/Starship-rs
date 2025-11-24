@@ -1,6 +1,4 @@
-use std::{collections::{HashMap, HashSet}, time::Duration};
-
-use cpal::{traits::DeviceTrait, BuildStreamError, FromSample, OutputCallbackInfo, Sample, SampleFormat, SampleRate, StreamConfig, StreamError};
+use std::{collections::{HashMap, HashSet}};
 
 use crate::{
     circuit::{BuildState, Circuit, CircuitBuilder, CircuitUiSlot}, circuit_id::{CircuitId, CircuitPortId, PortId, PortKind}, connection_manager::ConnectionManager, pitch::TuningSystem
@@ -102,7 +100,7 @@ impl<'a> PatchIr<'a> {
                     // Determine processing behavior for each target
                     for dst in destinations {
                         // the circuit id belonging to the destination port
-                        let dst_circuit = dst.circuit_id;
+                        let dst_circuit = dst.unit_id;
                         if let Some(index) = Self::hashset_array_contains(outputs, &dst_circuit) {
                             output_targets.push(out_start_index + index);
 
@@ -139,7 +137,7 @@ impl<'a> PatchIr<'a> {
                         // Determine processing behavior for each target
                         for dst in destinations {
                             // the circuit id belonging to the destination port
-                            let dst_circuit = dst.circuit_id;
+                            let dst_circuit = dst.unit_id;
 
 
                             if let Some(index) = Self::hashset_array_contains(outputs, &dst_circuit) {
@@ -296,7 +294,7 @@ impl<'a> PatchIr<'a> {
                 }
 
                 for source_port in source_ports.unwrap() {
-                    let source_circuit = source_port.circuit_id;
+                    let source_circuit = source_port.unit_id;
 
                     if !visited.contains(&source_circuit) && Self::hashset_array_contains(&inputs, &source_circuit) == None {
                         visited.insert(source_circuit);

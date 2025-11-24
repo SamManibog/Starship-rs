@@ -5,6 +5,7 @@ pub struct LivePluginIdManager {
     synth: IdManager<LivePluginId>,
     drum: IdManager<LivePluginId>,
     effect: IdManager<LivePluginId>,
+    effect_group: IdManager<LivePluginId>,
 }
 
 impl LivePluginIdManager {
@@ -14,30 +15,33 @@ impl LivePluginIdManager {
             synth: IdManager::new(Lci::SYNTH_MIN, Lci::SYNTH_MAX),
             drum: IdManager::new(Lci::DRUM_MIN, Lci::DRUM_MAX),
             effect: IdManager::new(Lci::EFFECT_MIN, Lci::EFFECT_MAX),
+            effect_group: IdManager::new(Lci::EFFECT_GROUP_MIN, Lci::EFFECT_GROUP_MAX),
         }
     }
 
     fn manager_mut(&mut self, kind: LivePluginKind) -> &mut IdManager<LivePluginId> {
         match kind {
-            LivePluginKind::None => panic!("Attempted to get manager for 'None' component type."),
+            LivePluginKind::Nil => panic!("Attempted to get manager for 'None' component type."),
             LivePluginKind::Synth => &mut self.synth,
             LivePluginKind::Drum => &mut self.drum,
             LivePluginKind::Effect => &mut self.effect,
+            LivePluginKind::EffectGroup => &mut self.effect_group,
         }
     }
 
     fn manager(&self, kind: LivePluginKind) -> &IdManager<LivePluginId> {
         match kind {
-            LivePluginKind::None => panic!("Attempted to get manager for 'None' component type."),
+            LivePluginKind::Nil => panic!("Attempted to get manager for 'None' component type."),
             LivePluginKind::Synth => &self.synth,
             LivePluginKind::Drum => &self.drum,
             LivePluginKind::Effect => &self.effect,
+            LivePluginKind::EffectGroup => &self.effect_group,
         }
     }
 
     pub fn get_id(&mut self, kind: LivePluginKind) -> Option<LivePluginId> {
-        if kind == LivePluginKind::None {
-            Some(LivePluginId::NONE)
+        if kind == LivePluginKind::Nil {
+            Some(LivePluginId::NIL)
         } else {
             self.manager_mut(kind).get_id()
         }
@@ -45,7 +49,7 @@ impl LivePluginIdManager {
 
     pub fn give_id(&mut self, id: LivePluginId) {
         let kind = id.kind();
-        if kind != LivePluginKind::None {
+        if kind != LivePluginKind::Nil {
             self.manager_mut(kind).give_id(id);
         }
     }
@@ -62,20 +66,28 @@ impl LivePluginId {
     const DRUM_MIN: u32 = (1 << 31) + 1;
     const DRUM_MAX: u32 = 2 << 31;
     const EFFECT_MIN: u32 = (2 << 31) + 1;
-    const EFFECT_MAX: u32 = u32::MAX;
+    const EFFECT_MAX: u32 = 3 << 31;
+    const EFFECT_GROUP_MIN: u32 = (3 << 31) + 1;
+    const EFFECT_GROUP_MAX: u32 = u32::MAX;
     
-    pub const NONE: Self = LivePluginId { id: 0 };
+    pub const NIL: Self = LivePluginId { id: 0 };
 
     pub fn kind(&self) -> LivePluginKind {
-        if self.id >= Self::EFFECT_MIN {
+        if self.id >= Self::EFFECT_GROUP_MIN {
+            LivePluginKind::EffectGroup
+        } else if self.id >= Self::EFFECT_MIN {
             LivePluginKind::Effect
         } else if self.id >= Self::DRUM_MIN {
             LivePluginKind::Drum
         } else if self.id >= Self::SYNTH_MIN {
             LivePluginKind::Synth
         } else {
-            LivePluginKind::None
+            LivePluginKind::Nil
         }
+    }
+
+    pub fn is_nil(&self) -> bool {
+        *self == Self::NIL
     }
 }
 
@@ -93,9 +105,15 @@ impl From<u32> for LivePluginId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LivePluginKind {
-    None,
+    Nil,
     Synth,
     Drum,
-    Effect
+    Effect,
+    EffectGroup
 }
 
+impl LivePluginKind {
+    pub fn is_nil(&self) -> bool {
+        *self == Self::Nil
+    }
+}

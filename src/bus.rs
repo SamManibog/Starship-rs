@@ -1,6 +1,31 @@
 use std::collections::HashMap;
 
-use crate::{live_plugin_id::LivePluginId, playback::LiveEffectContainer};
+use crate::{live_plugin_id::LivePluginId, playback::{AutomationId, LiveEffectContainer}};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BusLocation {
+    channel_number: u8,
+    effect_number: u8
+}
+
+impl BusLocation {
+    pub fn new(channel_number: usize, effect_number: usize) -> Self {
+        debug_assert!(channel_number < Bus::MAX_CHANNELS, "Bad channel number");
+        debug_assert!(effect_number < BusChannel::MAX_EFFECTS, "Bad effect number");
+        Self {
+            channel_number: channel_number as u8,
+            effect_number: effect_number as u8
+        }
+    }
+
+    pub fn channel_number(&self) -> usize {
+        self.channel_number as usize
+    }
+
+    pub fn effect_number(&self) -> usize {
+        self.effect_number as usize
+    }
+}
 
 #[derive(Debug)]
 pub struct Bus {
@@ -10,9 +35,10 @@ pub struct Bus {
     /// the master channel
     master_channel: BusChannel,
 
+    /// scratch buffer for sending automation updates
+    automation_send_buffer: Vec<(AutomationId, f32)>,
+
     /// scratch buffer for inputs from previous pass of effects, not yet processed
-    // reasoning behind this is to improve runtime by reducing the amount of memory allocated by
-    // calls to update()
     sample_buffer: [f32; Self::MAX_CHANNELS],
 
 }
@@ -24,8 +50,11 @@ impl Bus {
 
 #[derive(Debug)]
 pub struct BusChannel {
+    /// targets to send output to for each effect
+    send_targets: [Vec<AutomationId>; Self::MAX_EFFECTS],
+
     /// ids of effects plugins to send to
-    effects: [LivePluginId; Self::MAX_EFFECTS],
+    effects: [*mut LiveEffectContainer; Self::MAX_EFFECTS],
 
     /// whether or not the channel is muted
     muted: bool,
@@ -40,6 +69,7 @@ impl BusChannel {
 
     pub fn new() -> Self {
         Self {
+            send_targets: [const { Vec::new() }; Self::MAX_EFFECTS],
             effects: [LivePluginId::NONE; Self::MAX_EFFECTS],
             muted: false,
             volume: 1.0
@@ -54,21 +84,16 @@ impl Default for BusChannel {
 }
 
 impl Bus {
-    /// get a sample from the bus
     pub fn update(
         &mut self,
         inputs: &[f32; Self::MAX_CHANNELS],
-        effects: &mut HashMap<LivePluginId, LiveEffectContainer>,
         sample_rate: u32
     ) -> f32 {
         // get initial sample
         for i in 0..inputs.len() {
-            let effect_id = self.channels[i].effects[0];
-            if effect_id != LivePluginId::NONE {
-                self.sample_buffer[i] = effects
-                    .get_mut(&effect_id)
-                    .unwrap()
-                    .update(inputs[i], sample_rate);
+            let effect = self.channels[i].effects[0];
+            if effect != std::ptr::null_mut() {
+                self.sample_buffer[i] = unsafe {(*effect).update(inputs[i], sample_rate)};
             }
         }
 
@@ -110,7 +135,7 @@ impl Bus {
         if self.master_channel.muted {
             0.0
         } else {
-            master_sample * self.master_channel.volume
+            master_sample
         }
     }
 }

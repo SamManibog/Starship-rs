@@ -1,7 +1,7 @@
 use std::{collections::{HashMap, HashSet}, u16};
 use egui::{Color32, Painter, Pos2, Stroke, epaint::CubicBezierShape};
 
-use crate::{connection_builder::PortUi, circuit_id::{CircuitId, CircuitPortId, ConnectionId}};
+use crate::{circuit_id::{CircuitId, CircuitPortId, ConnectionId}, connection_builder::PortUi};
 
 /// The amount of possible colors for a connection
 pub const CONNECTION_COLOR_COUNT: usize = 5;
@@ -74,10 +74,10 @@ pub const CONNECTION_COLORS: [Color32; CONNECTION_COLOR_COUNT] = [
 #[derive(Debug, Default)]
 pub struct ConnectionManager {
     /// The list of all connections and their assigned colors
-    connections: Vec<(ConnectionId, ColorIndex)>,
+    connections: Vec<(ConnectionId<CircuitId>, ColorIndex)>,
 
     /// The set of all connections
-    connection_set: HashSet<ConnectionId>,
+    connection_set: HashSet<ConnectionId<CircuitId>>,
 
     /// A map matching a port to the colors of its associated connections
     counter_map: HashMap<CircuitPortId, ColorCounter>,
@@ -92,7 +92,7 @@ pub struct ConnectionManager {
 impl ConnectionManager {
     /// Adds the given connection to the list of connections.
     /// Returns true if the connection was successfully added.
-    pub fn add_connection(&mut self, connection: ConnectionId) -> bool {
+    pub fn add_connection(&mut self, connection: ConnectionId<CircuitId>) -> bool {
         if !self.connection_set.contains(&connection) {
             //ensure color counters are initialized
             if !self.counter_map.contains_key(&connection.src()) {
@@ -152,7 +152,7 @@ impl ConnectionManager {
 
     /// Removes the given connection from the list of connections.
     /// Returns true if the connection was successfully removed
-    pub fn remove_connection(&mut self, connection: ConnectionId) -> bool {
+    pub fn remove_connection(&mut self, connection: ConnectionId<CircuitId>) -> bool {
         if self.connection_set.contains(&connection) {
 
             //wipe data
@@ -177,7 +177,7 @@ impl ConnectionManager {
     pub fn remove_circuit(&mut self, circuit: CircuitId) {
         let mut to_remove = vec![];
         self.connections.retain(|(entry, col)| {
-            if entry.src().circuit_id == circuit || entry.dst().circuit_id == circuit {
+            if entry.src().unit_id == circuit || entry.dst().unit_id == circuit {
                 let color = *col;
                 to_remove.push((*entry, color));
                 false
@@ -193,7 +193,7 @@ impl ConnectionManager {
     /// Clears all data associated with the connection. You must provide the color
     /// associated with the connection, or the manager will not function properly
     /// Does not remove the connection from the list of connections
-    fn wipe_connection_data(&mut self, connection: ConnectionId, color: ColorIndex) {
+    fn wipe_connection_data(&mut self, connection: ConnectionId<CircuitId>, color: ColorIndex) {
         self.connection_set.remove(&connection);
 
         self.connection_map
@@ -275,10 +275,10 @@ impl ConnectionManager {
     }
 
     /// Returns a vec with all connections to the circuit
-    pub fn circuit_query_connections(&self, circuit: CircuitId) -> Vec<ConnectionId> {
+    pub fn circuit_query_connections(&self, circuit: CircuitId) -> Vec<ConnectionId<CircuitId>> {
         let mut output = vec![];
         for (id, _) in &self.connections {
-            if id.dst().circuit_id == circuit  || id.src().circuit_id == circuit {
+            if id.dst().unit_id == circuit  || id.src().unit_id == circuit {
                 output.push(*id);
             }
         }

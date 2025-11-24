@@ -1,15 +1,26 @@
 use std::collections::HashMap;
 
-use crate::{bus::Bus, live_plugin_id::{LivePluginId, LivePluginIdManager}};
+use crate::{live_plugin_id::{LivePluginId, LivePluginIdManager}, plugin_graph::PlaybackOrder};
 
 pub struct PlaybackState {
+    /// manager for universal id of components
     live_id_manager: LivePluginIdManager,
 
-    synths: HashMap<LivePluginId, LiveSynthContainer>,
-    drums: HashMap<LivePluginId, LiveDrumContainer>,
-    effects: HashMap<LivePluginId, LiveEffectContainer>,
+    /// map from an identifier to important data regarding the component
+    synths: HashMap<LivePluginId, Box<ComponentMetadata<LiveSynthContainer>>>,
+    drums: HashMap<LivePluginId, Box<ComponentMetadata<LiveDrumContainer>>>,
+    effects: HashMap<LivePluginId, Box<ComponentMetadata<LiveEffectContainer>>>,
 
-    bus: Bus,
+    order: PlaybackOrder,
+}
+
+#[derive(Debug)]
+pub struct ComponentMetadata<T> {
+    /// a pointer to the data of the component
+    pub component: *mut T,
+
+    /// the effect group that the component belongs to
+    pub group: LivePluginId
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -123,13 +134,57 @@ impl LiveDrumContainer {
 }
 
 pub struct LiveEffectContainer {
+    /// the implementation of the effect
     effect: Box<dyn LiveEffect>,
+
+    /// the buffer of automations to pass to the effect
     automations: Vec<f32>,
+
+    /// the sample to pass to the effect
+    sample: f32,
+
+    /// the sample to pass to the effect on the next update
+    buffered_sample: f32,
 }
 
 impl LiveEffectContainer {
-    pub fn update(&mut self, sample: f32, sample_rate: u32) -> f32 {
-        self.effect.update(sample, &AutomationState::new(&self.automations), sample_rate)
+    pub unsafe fn new(effect: Box<dyn LiveEffect>) -> Self {
+        let automation_count = effect.get_automatable().len();
+        Self {
+            effect,
+            automations: vec![0.0; automation_count],
+            sample: 0.0,
+            buffered_sample: 0.0,
+        }
     }
+
+    pub fn update(&mut self, sample_rate: u32) -> f32 {
+        let out = self.effect.update(self.sample, &AutomationState::new(&self.automations), sample_rate);
+        self.sample = self.buffered_sample;
+        self.buffered_sample = 0.0;
+        out
+    }
+
+    pub fn send(&mut self, sample: f32) {
+        self.sample += sample;
+    }
+
+    pub fn save(&mut self, sample: f32) {
+        self.buffered_sample += sample;
+    }
+
+    /*
+    pub fn remove_send(&mut self, target: *mut Self) {
+        if let Ok(index) = self.sends.binary_search(&target) {
+            self.sends.remove(index);
+        }
+    }
+
+    pub fn add_send(&mut self, target: *mut Self) {
+        if let Err(index) = self.sends.binary_search(&target) {
+            self.sends.insert(index, target);
+        }
+    }
+    */
 }
 
