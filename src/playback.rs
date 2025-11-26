@@ -1,15 +1,69 @@
 use std::collections::HashMap;
 
-use crate::{live_plugin_id::{LivePluginId, LivePluginIdManager}, plugin_graph::PlaybackOrder};
+use crate::{live_plugin_id::LivePluginId, plugin_graph::{EffectGraph, PlaybackOrder}};
+
+#[derive(Debug)]
+pub enum PlaybackCommand {
+    /// begin playing audio
+    StartPlayback,
+
+    /// stop playing audio
+    StopPlayback,
+
+    /// add a synthesizer of the given name using the given id
+    AddSynth{name: String, id: LivePluginId},
+
+    /// remove the synthesizer with the given id
+    RemoveSynth(LivePluginId),
+
+    /// add a drum of the given name using the given id
+    AddDrum{name: String, id: LivePluginId},
+
+    /// remove the drum with the given id
+    RemoveDrum(LivePluginId),
+
+    /// add an effect of the given name using the given id
+    AddEffect{name: String, id: LivePluginId},
+
+    /// remove the effect with the given id
+    RemoveEffect(LivePluginId),
+
+    /// connect two effects in an effects group
+    ConnectEffects{group: LivePluginId, src: LivePluginId, dst: LivePluginId},
+
+    /// disconnect two effects in an effects group
+    DisconnectEffects{group: LivePluginId, src: LivePluginId, dst: LivePluginId},
+
+    /// connect an effect directly to the output of an effects group
+    ConnectDirectOutput{group: LivePluginId, src: LivePluginId},
+
+    /// disconnect an effect directly from the output of an effects group
+    DisconnectDirectOutput{group: LivePluginId, src: LivePluginId},
+
+    /// connect a synth/drum directly to the output of an effects group
+    ConnectDirectInput{group: LivePluginId, src: LivePluginId},
+
+    /// disconnect a synth/drum directly from the output of an effects group
+    DisconnectDirectInput{group: LivePluginId, src: LivePluginId},
+}
+
+pub struct ComponentFactory {
+    synths: Vec<(String, Box<dyn Fn()->Box<dyn LiveSynth>>)>,
+    drums: Vec<(String, Box<dyn Fn()->Box<dyn LiveSynth>>)>,
+    effects: Vec<(String, Box<dyn Fn()->Box<dyn LiveSynth>>)>,
+}
 
 pub struct PlaybackState {
-    /// manager for universal id of components
-    live_id_manager: LivePluginIdManager,
-
-    /// map from an identifier to important data regarding the component
+    /// map from an id to important data regarding the component
     synths: HashMap<LivePluginId, Box<ComponentMetadata<LiveSynthContainer>>>,
     drums: HashMap<LivePluginId, Box<ComponentMetadata<LiveDrumContainer>>>,
     effects: HashMap<LivePluginId, Box<ComponentMetadata<LiveEffectContainer>>>,
+
+    /// a map from an id to an effect group's graph and main output
+    effect_group_outputs: HashMap<LivePluginId, (Box<EffectGraph>, *mut LiveEffectContainer)>,
+
+    /// the main output
+    main_output: *mut LiveEffectContainer,
 
     order: PlaybackOrder,
 }
@@ -172,19 +226,5 @@ impl LiveEffectContainer {
     pub fn save(&mut self, sample: f32) {
         self.buffered_sample += sample;
     }
-
-    /*
-    pub fn remove_send(&mut self, target: *mut Self) {
-        if let Ok(index) = self.sends.binary_search(&target) {
-            self.sends.remove(index);
-        }
-    }
-
-    pub fn add_send(&mut self, target: *mut Self) {
-        if let Err(index) = self.sends.binary_search(&target) {
-            self.sends.insert(index, target);
-        }
-    }
-    */
 }
 

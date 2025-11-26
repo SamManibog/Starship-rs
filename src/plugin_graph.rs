@@ -416,7 +416,7 @@ impl EffectGraph {
     /// overwrites the given playback order with the order for this graph
 	pub fn overwrite_order(
         &self,
-        order: &mut EffectGraphPlaybackOrder,
+        order: &mut EffectGraphOrder,
         effect_map: &HashMap<LivePluginId, *mut LiveEffectContainer>
     ) {
         // a map from each plugin to (depth, finish_time)
@@ -545,7 +545,7 @@ pub struct PlaybackOrder {
     pub(super) synth_sends: Vec<Vec<*mut LiveEffectContainer>>,
 
     /// the effect groups
-    pub(super) effect_groups: Vec<*mut EffectGraphPlaybackOrder>,
+    pub(super) effect_groups: Vec<Box<EffectGraphOrder>>,
 
     /// the main output
     pub(super) main_output: *mut LiveEffectContainer
@@ -578,14 +578,78 @@ impl PlaybackOrder {
         // get main output
         unsafe { (*self.main_output).update(sample_rate) }
     }
+
+    /// removes the effect group with the given id
+    /// returns true if the removal was successful
+    pub fn remove_group(&mut self, id: LivePluginId) -> bool {
+        let index = self.effect_groups.binary_search_by(|g| g.id.cmp(&id));
+        match index {
+            Ok(i) => {
+                self.effect_groups.remove(i);
+                true
+            },
+            Err(_) => false
+        }
+    }
+
+    /// creates an effect group with the given id
+    /// returns true if the removal was successful
+    pub fn add_group(&mut self, id: LivePluginId) -> bool {
+        let index = self.effect_groups.binary_search_by(|g| g.id.cmp(&id));
+        match index {
+            Err(i) => {
+                self.effect_groups.insert(i, Box::new(EffectGraphOrder::new(id)));
+                true
+            },
+            Ok(_) => false
+        }
+    }
+
+    /// modifies the effect group using data from the given effect graph
+    /// returns true on a successful modificiation
+    pub fn modify_group(
+        &mut self,
+        id: LivePluginId,
+        graph: &EffectGraph,
+        effect_map: &HashMap<LivePluginId, *mut LiveEffectContainer>,
+    ) -> bool {
+        if let Some(mut order) = self.get_group_mut(id) {
+            graph.overwrite_order(&mut order, effect_map);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// gets the group with the given id mutably
+    fn get_group_mut(&mut self, id: LivePluginId) -> Option<&mut EffectGraphOrder> {
+        let index = self.effect_groups.binary_search_by(|g| g.id.cmp(&id));
+        match index {
+            Ok(i) => {
+                Some(&mut self.effect_groups[i])
+            },
+            Err(_) => None
+        }
+    }
+
+    /// gets the group with the given id immutably
+    pub fn get_group(&mut self, id: LivePluginId) -> Option<&EffectGraphOrder> {
+        let index = self.effect_groups.binary_search_by(|g| g.id.cmp(&id));
+        match index {
+            Ok(i) => {
+                Some(&self.effect_groups[i])
+            },
+            Err(_) => None
+        }
+    }
 }
 
 #[derive(Debug)]
-pub struct EffectGraphPlaybackOrder {
-    pub(super) effects: Vec<*mut LiveEffectContainer>,
-    pub(super) targets: Vec<EffectSendSaveBuffer>,
-    pub(super) output: *mut LiveEffectContainer,
-    pub(super) id: LivePluginId,
+pub struct EffectGraphOrder {
+    effects: Vec<*mut LiveEffectContainer>,
+    targets: Vec<EffectSendSaveBuffer>,
+    output: *mut LiveEffectContainer,
+    id: LivePluginId,
 }
 
 #[derive(Debug)]
@@ -595,12 +659,20 @@ struct EffectSendSaveBuffer {
     data: Vec<*mut LiveEffectContainer>
 }
 
-impl EffectGraphPlaybackOrder {
+impl EffectGraphOrder {
     const MIN_VOLUME: f32 = 0.0;
     const MAX_VOLUME: f32 = 2.0;
 
+    pub fn output_effect(&self) -> *mut LiveEffectContainer {
+        self.output
+    }
+
+    pub fn id(&self) -> LivePluginId {
+        self.id
+    }
+
     pub fn new(id: LivePluginId) -> Self {
-        let output_effect = Box::new(EffectGraphOutput::new());
+        let output_effect = Box::new(EffectGroupOutput::new());
         let output = unsafe { Box::into_raw(Box::new(LiveEffectContainer::new(output_effect))) };
 
         Self {
@@ -630,7 +702,7 @@ impl EffectGraphPlaybackOrder {
 }
 
 #[derive(Debug)]
-pub struct EffectGraphOutput {
+pub struct EffectGroupOutput {
     /// fractional volume of output
     volume: f32,
 
@@ -638,7 +710,7 @@ pub struct EffectGraphOutput {
     muted: bool
 }
 
-impl LivePlugin for EffectGraphOutput {
+impl LivePlugin for EffectGroupOutput {
     fn reset(&mut self) {
         self.volume = 1.0;
         self.muted = false;
@@ -649,7 +721,7 @@ impl LivePlugin for EffectGraphOutput {
     }
 }
 
-impl LiveEffect for EffectGraphOutput {
+impl LiveEffect for EffectGroupOutput {
     fn update(&mut self, sample: f32, _automations: &crate::playback::AutomationState, _sample_rate: u32) -> f32 {
         if self.muted {
             0.0
@@ -659,7 +731,7 @@ impl LiveEffect for EffectGraphOutput {
     }
 }
 
-impl EffectGraphOutput {
+impl EffectGroupOutput {
     pub fn new() -> Self {
         Self {
             volume: 1.0,
@@ -668,7 +740,7 @@ impl EffectGraphOutput {
     }
 }
 
-impl Default for EffectGraphOutput {
+impl Default for EffectGroupOutput {
     fn default() -> Self {
         Self::new()
     }
