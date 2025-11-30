@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use crate::{live_plugin_id::{LivePluginId, LivePluginKind}, playback::{LiveDrumContainer, LiveEffect, LiveEffectContainer, LivePlugin, LiveSynthContainer}};
+use crate::{live_plugin_id::{LivePluginId, LivePluginKind}, playback::{InputSpecification, LiveDrum, LiveEffect, LiveEffectContainer, LivePlugin, LiveSynth}};
 
 pub struct EffectGraph {
     /// Contains all nodes without children
@@ -537,11 +537,11 @@ impl EffectGraph {
 
 pub struct PlaybackOrder {
     /// drums and their sends
-    pub(super) drums: Vec<*mut LiveDrumContainer>,
+    pub(super) drums: Vec<*mut dyn LiveDrum>,
     pub(super) drum_sends: Vec<Vec<*mut LiveEffectContainer>>,
 
     /// synths and their sends
-    pub(super) synths: Vec<*mut LiveSynthContainer>,
+    pub(super) synths: Vec<*mut dyn LiveSynth>,
     pub(super) synth_sends: Vec<Vec<*mut LiveEffectContainer>>,
 
     /// the effect groups
@@ -716,19 +716,47 @@ impl LivePlugin for EffectGroupOutput {
         self.muted = false;
     }
 
-    fn get_automatable(&self) -> &[crate::playback::AutomationSpecification] {
-        todo!()
+    fn get_inputs(&self) -> Vec<InputSpecification> {
+        vec![
+            InputSpecification {
+                id: 0,
+                name: "Volume".to_string(),
+                short_name: "Vol".to_string(),
+                range: (0.0, 1.5),
+                input_values: 0,
+                default: 1.0
+            },
+            InputSpecification {
+                id: 1,
+                name: "Muted".to_string(),
+                short_name: "Mute".to_string(),
+                range: (0.0, 1.0),
+                input_values: 2,
+                default: 0.0
+            },
+        ]
+    }
+
+    fn set_input(&mut self, id: crate::playback::InputId, value: f64) {
+        match id {
+            0 => { self.volume = value as f32; }
+
+            1 => { self.muted = value >= 0.5; }
+
+            _ => unreachable!("It should be guaranteed that only ids of 0 and 1 are arguments.")
+        }
     }
 }
 
 impl LiveEffect for EffectGroupOutput {
-    fn update(&mut self, sample: f32, _automations: &crate::playback::AutomationState, _sample_rate: u32) -> f32 {
+    fn update(&mut self, sample: f32, _sample_rate: u32) -> f32 {
         if self.muted {
             0.0
         } else {
             sample * self.volume
         }
     }
+
 }
 
 impl EffectGroupOutput {

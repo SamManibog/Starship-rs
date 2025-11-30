@@ -2,6 +2,9 @@ use std::collections::HashMap;
 
 use crate::{live_plugin_id::LivePluginId, plugin_graph::{EffectGraph, PlaybackOrder}};
 
+pub type NoteId = u32;
+pub type InputId = u32;
+
 #[derive(Debug)]
 pub enum PlaybackCommand {
     /// begin playing audio
@@ -55,9 +58,9 @@ pub struct ComponentFactory {
 
 pub struct PlaybackState {
     /// map from an id to important data regarding the component
-    synths: HashMap<LivePluginId, Box<ComponentMetadata<LiveSynthContainer>>>,
-    drums: HashMap<LivePluginId, Box<ComponentMetadata<LiveDrumContainer>>>,
-    effects: HashMap<LivePluginId, Box<ComponentMetadata<LiveEffectContainer>>>,
+    synths: HashMap<LivePluginId, Box<ComponentMetadata<*mut dyn LiveSynth>>>,
+    drums: HashMap<LivePluginId, Box<ComponentMetadata<*mut dyn LiveDrum>>>,
+    effects: HashMap<LivePluginId, Box<ComponentMetadata<*mut LiveEffectContainer>>>,
 
     /// a map from an id to an effect group's graph and main output
     effect_group_outputs: HashMap<LivePluginId, (Box<EffectGraph>, *mut LiveEffectContainer)>,
@@ -65,13 +68,16 @@ pub struct PlaybackState {
     /// the main output
     main_output: *mut LiveEffectContainer,
 
+    /// the id of the main output
+    main_output_id: LivePluginId,
+
     order: PlaybackOrder,
 }
 
 #[derive(Debug)]
 pub struct ComponentMetadata<T> {
     /// a pointer to the data of the component
-    pub component: *mut T,
+    pub component: T,
 
     /// the effect group that the component belongs to
     pub group: LivePluginId
@@ -87,23 +93,55 @@ pub trait LivePlugin {
     /// reset any internal state when playback stops, for instance
     fn reset(&mut self);
 
-    /// gets a list of automatable components.
-    fn get_automatable(&self) -> &[AutomationSpecification];
+    /// gets a list of secondary inputs
+    /// the return value of this must remain constant for the entire runtime
+    fn get_inputs(&self) -> Vec<InputSpecification>;
+
+    /// sets the value of a seconcdary input by its id
+    /// we guarantee that this function is only called with ids
+    /// and values specified by the get_inputs function
+    fn set_input(&mut self, id: InputId, value: f64);
 }
 
 pub trait LiveEffect: LivePlugin {
-    fn update(&mut self, sample: f32, automations: &AutomationState, sample_rate: u32) -> f32;
+    fn update(&mut self, sample: f32, sample_rate: u32) -> f32;
 }
 
 pub trait LiveDrum: LivePlugin {
-    fn update(&mut self, state: DrumState, automations: &AutomationState, sample_rate: u32) -> f32;
+    fn update(&mut self, sample_rate: u32) -> f32;
 }
 
 pub trait LiveSynth: LivePlugin {
-    /// The number of voices allowed on this plugin
-    fn voice_count(&self) -> usize;
+    /// whether or not this synthesizer allows notes to change frequency
+    fn allow_frequency_change(&self) -> bool;
 
-    fn update(&mut self, voices: &[VoiceState], automations: &AutomationState, sample_rate: u32) -> f32;
+    /// whether or not this synthesizer handles aftertouch
+    fn allow_aftertouch(&self) -> bool;
+
+    /// turns on a note.
+    /// You must handle id management yourself
+    fn set_note_on(&mut self, id: NoteId, freq: f32, velocity: u8);
+
+    /// turns off a note
+    fn set_note_off(&mut self, id: NoteId, freq: f32);
+
+    /// sets the frequency of a note
+    /// if allow_frequency_change is false, this function will never be called
+    fn set_note_freq(&mut self, id: NoteId, freq: f32);
+
+    /// sets the aftertouch for a note
+    /// if allow_aftertouch is false, this function will never be called
+    fn set_note_aftertouch(&mut self, id: NoteId, aftertouch: f32);
+
+    /// Set the input to the given value.
+    /// We guarantee that only ids as specified in the get_inputs() function will be passed as
+    /// arguments to this function.
+    fn set_input(&mut self, id: InputId, value: f64);
+
+    /// produces a sample
+    /// for each sample production cycle, it is guaranteed that this function
+    /// is called last.
+    fn update(&mut self, sample_rate: u32) -> f32;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,58 +170,60 @@ impl Default for VoiceState {
 }
 
 #[derive(Debug, Clone)]
-pub struct AutomationSpecification {
-    /// The internal id of the automation should be unique within the same component
-    /// In practice, these correspond to an index in an array so its best to keep these
-    /// low as possible so as to avoid excessive memory cost
-    pub id: usize,
+pub struct InputSpecification {
+    /// The id of the input.
+    /// These should be unique within the same plugin
+    pub id: InputId,
 
-    /// The displayed name of the automatable input
+    /// The displayed name of the input
     pub name: String,
+
+    /// A shortened name for the input
+    pub short_name: String,
 
 	/// The allowed range of values for the automatable input
     /// Input values are clamped during runtime.
-    pub range: (f32, f32),
+    ///	You must ensure range.0 < range.1, both values must also be real numbers
+    pub range: (f64, f64),
+
+    /// the number of allowed values for the input.
+    /// values will be passed with an even distribution within the specified range
+    /// 0 or 1 corresponds to a continuous amount of values (no snapping)
+    /// 2 corresponds to two possible input values
+    /// 3 corresponds to three possible input values and so on
+    pub input_values: u32,
+
+    /// The default value of the input
+    /// When reset is called on the plugin that produced it,
+    /// the input should default to this value
+    pub default: f64
 }
 
-#[derive(Debug, Clone)]
-pub struct AutomationState<'a> {
-    map: &'a [f32],
-}
+impl InputSpecification {
+    /// whether or not the input supports continouous values
+    pub fn is_continuous(&self) -> bool {
+        self.input_values <= 1
+    }
 
-impl<'a> AutomationState<'a> {
-    pub fn new(data: &'a [f32]) -> Self {
-        Self {
-            map: data
+    /// whether the input requires discrete values
+    pub fn is_discrete(&self) -> bool {
+        self.input_values > 1
+    }
+
+    /// snaps the given value based on this specificiation's range and input_values
+    pub fn snap(&self, value: f64) -> f64 {
+        let clamped = value.clamp(self.range.0, self.range.1);
+
+        if self.is_continuous() {
+            return clamped;
         }
-    }
-    
-    pub fn query(&self, id: usize) -> f32 {
-        self.map.get(id).copied().unwrap_or(0.0)
-    }
-}
 
-pub struct LiveSynthContainer {
-    synth: Box<dyn LiveSynth>,
-    automations: Vec<f32>,
-    voices: Vec<VoiceState>
-}
+        let range_diff = self.range.1 - self.range.0;
+        let steps = (self.input_values - 1) as f64;
+        let scale_factor = steps / range_diff;
 
-impl LiveSynthContainer {
-    pub fn update(&mut self, sample_rate: u32) -> f32 {
-        self.synth.update(&self.voices, &AutomationState::new(&self.automations), sample_rate)
-    }
-}
-
-pub struct LiveDrumContainer {
-    drum: Box<dyn LiveDrum>,
-    automations: Vec<f32>,
-    state: DrumState
-}
-
-impl LiveDrumContainer {
-    pub fn update(&mut self, sample_rate: u32) -> f32 {
-        self.drum.update(self.state, &AutomationState::new(&self.automations), sample_rate)
+        //f64::round( steps * (clamped - self.range.0) / range_diff ) * range_diff / steps + self.range.0
+        f64::round( scale_factor * (clamped - self.range.0) ) / scale_factor + self.range.0
     }
 }
 
@@ -203,7 +243,7 @@ pub struct LiveEffectContainer {
 
 impl LiveEffectContainer {
     pub unsafe fn new(effect: Box<dyn LiveEffect>) -> Self {
-        let automation_count = effect.get_automatable().len();
+        let automation_count = effect.get_inputs().len();
         Self {
             effect,
             automations: vec![0.0; automation_count],
@@ -213,7 +253,7 @@ impl LiveEffectContainer {
     }
 
     pub fn update(&mut self, sample_rate: u32) -> f32 {
-        let out = self.effect.update(self.sample, &AutomationState::new(&self.automations), sample_rate);
+        let out = self.effect.update(self.sample, sample_rate);
         self.sample = self.buffered_sample;
         self.buffered_sample = 0.0;
         out

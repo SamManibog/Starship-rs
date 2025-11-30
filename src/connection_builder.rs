@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use egui::Color32;
 
 use crate::{
-    circuit::CircuitSpecification, circuit_id::{CircuitId, CircuitPortId, LocalParameterId, PortKind}, circuit_input::CircuitInput, circuits::{ConstantBuilder, ConstantBuilderData, SpecialInputBuilder, SpecialOutputBuilder}
+    circuit::CircuitSpecification, circuit_id::{CircuitId, CircuitPortId, PortId, PortKind}, circuit_input::CircuitInput, circuits::{ConstantBuilder, ConstantBuilderData, SpecialInputBuilder, SpecialOutputBuilder}
 };
 
 #[derive(Debug)]
@@ -144,7 +144,7 @@ impl ConnectionBuilder {
                                     ui.horizontal(|ui| {
                                         let id = CircuitPortId::new(
                                             self.id,
-                                            LocalParameterId::new(0, PortKind::Output)
+                                            PortId::new(0, PortKind::Output)
                                         );
                                         register.insert(
                                             id,
@@ -159,7 +159,7 @@ impl ConnectionBuilder {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                                 let id = CircuitPortId::new(
                                     self.id,
-                                    LocalParameterId::new(0, PortKind::Output)
+                                    PortId::new(0, PortKind::Output)
                                 );
                                 register.insert(
                                     id,
@@ -172,7 +172,7 @@ impl ConnectionBuilder {
                             ui.horizontal(|ui| {
                                 let id = CircuitPortId::new(
                                     self.id,
-                                    LocalParameterId::new(0, PortKind::Output)
+                                    PortId::new(0, PortKind::Output)
                                 );
                                 register.insert(
                                     id,
@@ -200,7 +200,7 @@ impl ConnectionBuilder {
             ui.horizontal(|ui| {
                 let id = CircuitPortId::new(
                         self.id,
-                        LocalParameterId::new(idx, kind)
+                        PortId::new(idx, kind)
                     );
                 register.insert(
                     id,
