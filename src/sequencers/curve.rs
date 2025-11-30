@@ -586,7 +586,9 @@ impl Curve {
     ///
     /// if the starting point was moved, all times will be adjusted so that
     /// the starting time is at zero
-    pub fn set_point_time(&mut self, point: CurvePointId, time: f64) {
+    ///
+    /// returns the new id of the point
+    pub fn set_point_time(&mut self, point: CurvePointId, time: f64) -> CurvePointId {
         debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
 
         if self.point_is_start(point) {
@@ -600,6 +602,8 @@ impl Curve {
 
             self.end_times.iter_mut().for_each(|f| *f -= time);
 
+            self.first_point()
+
         } else if self.point_is_end(point) {
             let min_time = self.end_times[self.end_times.len() - 2];
             if time <= min_time {
@@ -612,6 +616,8 @@ impl Curve {
             } else {
                 *self.end_times.last_mut().unwrap() = time.max(min_time);
             }
+
+            self.last_point()
 
         } else if point.side == CurvePointSide::Continuous {
             let min_time = if point.index == 1 {
@@ -635,6 +641,15 @@ impl Curve {
                 // it may be that we fuse with the first point
                 self.values[0].left_limit = self.values[0].right_limit;
 
+                CurvePointId {
+                    index: point.index - 1,
+                    side: if point.index == 1 {
+                        CurvePointSide::Continuous
+                    } else {
+                        CurvePointSide::Right
+                    }
+                }
+
             } else if time >= max_time {
                 let value = self.get_point_value(point);
                 self.values.remove(point.index);
@@ -648,8 +663,18 @@ impl Curve {
                 let last = self.values.last_mut().unwrap();
                 last.right_limit = last.left_limit;
 
+                CurvePointId {
+                    index: point.index,
+                    side: if point.index == self.values.len() - 1 {
+                        CurvePointSide::Continuous
+                    } else {
+                        CurvePointSide::Left
+                    }
+                }
+
             } else {
-                self.end_times[point.index - 1] = time.clamp(min_time, max_time);
+                self.end_times[point.index - 1] = time;
+                point
             }
 
         } else {
@@ -668,10 +693,24 @@ impl Curve {
                     // it may be that we re-fuse with the first point
                     self.values[0].left_limit = self.values[0].right_limit;
 
+                    CurvePointId {
+                        index: point.index - 1,
+                        side: if point.index == 1 {
+                            CurvePointSide::Continuous
+                        } else {
+                            CurvePointSide::Right
+                        }
+                    }
+
                 } else {
                     self.values.insert(point.index, CurveYValue::new_single(value));
                     self.transitions.insert(point.index, CurveShape::Linear);
                     self.end_times.insert(point.index - 1, time);
+
+                    CurvePointId {
+                        index: point.index,
+                        side: CurvePointSide::Continuous,
+                    }
                 }
             } else if point.side == CurvePointSide::Right && time > self.get_point_time(point) {
                 let max_time = self.get_point_time(self.next_point(point).unwrap());
@@ -689,11 +728,27 @@ impl Curve {
                     let last = self.values.last_mut().unwrap();
                     last.right_limit = last.left_limit;
 
+                    CurvePointId {
+                        index: point.index + 1,
+                        side: if point.index + 2 == self.values.len() {
+                            CurvePointSide::Continuous
+                        } else {
+                            CurvePointSide::Left
+                        }
+                    }
+
                 } else {
                     self.values.insert(point.index + 1, CurveYValue::new_single(value));
                     self.transitions.insert(point.index + 1, CurveShape::Linear);
                     self.end_times.insert(point.index, time);
+
+                    CurvePointId {
+                        index: point.index + 1,
+                        side: CurvePointSide::Continuous,
+                    }
                 }
+            } else {
+                point
             }
         }
     }
@@ -883,9 +938,11 @@ impl Curve {
     }
 
     // returns true if the given point is contained in the curve and continuity matches the point
+    // if the id is for a discontinuity, but the point is continuous, that is fine
+    // but if the id is for a continuous point, but the point is discontinuous, there is a problem
     pub fn point_is_valid(&self, point: CurvePointId) -> bool {
         point.index < self.values.len() &&
-        self.values[point.index].is_continuous() == (point.side == CurvePointSide::Continuous)
+        (self.values[point.index].is_continuous() || !point.side.is_continuous())
     }
 
     // returns true if the given segment is the first in the curve

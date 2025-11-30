@@ -189,18 +189,14 @@ impl eframe::App for CurveEditor {
                 if let Some(point) = self.editing_point {
                     let y = (mouse_pos.y - main_rect.min.y) / y_dim;
 
-                    self.curve.set_point_value(point, y as f64);
-
-                    if self.curve.point_is_intermediate(point) {
-                        let min_x = self.curve.get_point_time(
-                            self.curve.prev_point(point).unwrap()
-                        );
-                        let max_x = self.curve.get_point_time(
-                            self.curve.next_point(point).unwrap()
-                        );
+                    let new_point = if self.curve.point_is_intermediate(point) {
                         let x_raw = ((mouse_pos.x - main_rect.min.x) / x_dim) as f64;
-                        self.curve.set_point_time(point, x_raw.clamp(min_x, max_x));
-                    }
+                        self.curve.set_point_time(point, x_raw)
+                    } else {
+                        point
+                    };
+
+                    self.curve.set_point_value(new_point, y as f64);
                 }
                 self.editing_point = None
             }
