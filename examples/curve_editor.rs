@@ -1,4 +1,4 @@
-use egui::{Pos2, Sense};
+use egui::{Pos2, Rect, Sense, Vec2};
 use starship_rust::sequencers::curve::{Curve, CurvePointId};
 
 fn main() -> eframe::Result {
@@ -32,25 +32,39 @@ impl CurveEditor {
 
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut curve = Curve::new(0.5, 1.0);
+        curve.add_point(0.2);
+        curve.add_point(0.3);
+        curve.set_point_value(curve.get_nearest_point(0.3), 0.2);
         curve.add_point(0.5);
         curve.set_point_value(curve.get_nearest_point(0.5), 0.2);
-        let editing_point = Some(curve.get_nearest_point(0.5));
+        curve.add_point(0.7);
+        curve.set_point_value(curve.get_nearest_point(0.7), 0.5);
         Self {
             curve,
-            editing_point,
+            editing_point: None,
             saved_mouse_pos: Pos2::ZERO
         }
     }
 }
 
 impl eframe::App for CurveEditor {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             let request_dim = ui.max_rect().max - ui.max_rect().min;
-            let (response, painter) = ui.allocate_painter(request_dim, egui::Sense::empty());
+            let (response, painter) = ui.allocate_painter(request_dim, egui::Sense::click_and_drag());
             let main_rect = response.rect;
             let x_dim = main_rect.max.x - main_rect.min.x;
             let y_dim = main_rect.max.y - main_rect.min.y;
+
+            // mouse/interaction position relative to current ui
+            let mouse_pos =  ui.input(|input| {
+                if let Some(pos) = input.pointer.latest_pos() {
+                    self.saved_mouse_pos = pos;
+                    pos
+                } else {
+                    self.saved_mouse_pos
+                }
+            });
 
             let transform_x = |x: f64| {
                 x as f32 * x_dim + main_rect.min.x
@@ -71,15 +85,6 @@ impl eframe::App for CurveEditor {
                     self.curve.prev_point(point_id),
                     self.curve.next_point(point_id)
                 );
-                // mouse position relative to current ui
-                let mouse_pos = ui.input(|input| {
-                    if let Some(pos) = input.pointer.latest_pos() {
-                        self.saved_mouse_pos = pos;
-                        pos
-                    } else {
-                        self.saved_mouse_pos
-                    }
-                });
 
                 // minimum and maximum y coordinates (in ui coords)
                 let min_y = main_rect.min.y;
@@ -110,7 +115,7 @@ impl eframe::App for CurveEditor {
                     (Some(l_point_id), None) => {
                         let l_point = transform(self.curve.get_point_coords(l_point_id));
                         let point = Pos2::new(
-                            x_dim,
+                            main_rect.max.x,
                             mouse_pos.y.clamp(min_y, max_y)
                         );
 
@@ -125,7 +130,7 @@ impl eframe::App for CurveEditor {
                     (None, Some(r_point_id)) => {
                         let r_point = transform(self.curve.get_point_coords(r_point_id));
                         let point = Pos2::new(
-                            0.0,
+                            main_rect.min.x,
                             mouse_pos.y.clamp(min_y, max_y)
                         );
 
@@ -144,10 +149,7 @@ impl eframe::App for CurveEditor {
             }
 
             // draw non-editing edges
-            for seg_id in self.curve.segment_iter() {
-                let p1_id = self.curve.get_segment_start_point(seg_id);
-                let p2_id = self.curve.get_segment_end_point(seg_id);
-
+            for (p1_id, p2_id) in self.curve.point_pairs_iter() {
                 if Some(p1_id) == self.editing_point || Some(p2_id) == self.editing_point {
                     continue;
                 }
@@ -162,14 +164,45 @@ impl eframe::App for CurveEditor {
             }
 
             // draw non-editing points
+            let point_response_size = Vec2::new(Self::POINT_RADIUS * 2.0, Self::POINT_RADIUS * 2.0);
             for point_id in self.curve.point_iter() {
                 if Some(point_id) != self.editing_point {
+                    let coords = transform(self.curve.get_point_coords(point_id));
+
+                    let point_response = ui.allocate_rect(
+                        Rect::from_center_size(coords, point_response_size),
+                        Sense::drag()
+                    );
+                    
+                    if point_response.drag_started() {
+                        self.editing_point = Some(point_id);
+                    }
                     painter.circle_filled(
-                        transform(self.curve.get_point_coords(point_id)),
+                        coords,
                         Self::POINT_RADIUS,
                         Self::POINT_COLOR
                     );
                 }
+            }
+
+            if ui.input(|input| !input.pointer.primary_down()) {
+                if let Some(point) = self.editing_point {
+                    let y = (mouse_pos.y - main_rect.min.y) / y_dim;
+
+                    self.curve.set_point_value(point, y as f64);
+
+                    if self.curve.point_is_intermediate(point) {
+                        let min_x = self.curve.get_point_time(
+                            self.curve.prev_point(point).unwrap()
+                        );
+                        let max_x = self.curve.get_point_time(
+                            self.curve.next_point(point).unwrap()
+                        );
+                        let x_raw = ((mouse_pos.x - main_rect.min.x) / x_dim) as f64;
+                        self.curve.set_point_time(point, x_raw.clamp(min_x, max_x));
+                    }
+                }
+                self.editing_point = None
             }
 
         });

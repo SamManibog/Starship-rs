@@ -67,9 +67,6 @@ pub enum SmoothingShape {
 /// A possible easing function for a segment of a curve
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CurveShape {
-    /// No easing function (jump to next once over)
-    None,
-
     /// No smoothing
     Linear,
 
@@ -87,10 +84,6 @@ impl CurveShape {
     pub fn interpolate(&self, x: f64, x_1: f64, x_2: f64, y_1: f64, y_2: f64) -> f64 {
 		type S = SmoothingShape;
         match self {
-            Self::None => {
-                y_1
-            }
-            
             Self::Linear => {
                 (x - x_1) * (y_2 - y_1) / (x_2 - x_1) + y_1
             }
@@ -293,10 +286,6 @@ impl Curve {
         // lower bound
         let y_1 = self.values[index].right_limit;
 
-        if transition == CurveShape::None {
-            return y_1;
-        }
-
         // upper bound
         let y_2 = self.values[index + 1].left_limit;
 
@@ -461,14 +450,8 @@ impl Curve {
         // same start and end values if it is CurveShape::None
         // note that we must handle this scenario for intermediate points as well,
         // as we may delete the last transition when deleting the second-to-last point
-        let last_idx = self.transitions.len() - 1;
-        if self.transitions[last_idx] == CurveShape::None {
-            self.values[last_idx].left_limit = self.values[last_idx - 1].right_limit;
-        }
-
-        // preserve the invariant that the end yvalue must be a single
-        let end_y_val = self.values.last_mut().unwrap();
-        end_y_val.left_limit = end_y_val.right_limit;
+        let last = self.values.last_mut().unwrap();
+        last.left_limit = last.right_limit;
 
         Some(0.0)
     }
@@ -530,18 +513,9 @@ impl Curve {
 
         }
 
-        // preserve invariant that the last curve segment must have the
-        // same start and end values if it is CurveShape::None
-        // note that we must handle this scenario for intermediate points as well,
-        // as we may delete the last transition when deleting the second-to-last point
-        let last_idx = self.transitions.len() - 1;
-        if self.transitions[last_idx] == CurveShape::None {
-            self.values[last_idx].left_limit = self.values[last_idx - 1].right_limit;
-        }
-
         // preserve the invariant that the end yvalue must be a single
-        let end_y_val = self.values.last_mut().unwrap();
-        end_y_val.left_limit = end_y_val.right_limit;
+        let last = self.values.last_mut().unwrap();
+        last.left_limit = last.right_limit;
 
         Some(0.0)
     }
@@ -615,16 +589,31 @@ impl Curve {
     pub fn set_point_time(&mut self, point: CurvePointId, time: f64) {
         debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
 
-        todo!("handle cases where we fuse or separate points");
+        if self.point_is_start(point) {
+            // handle fusion
+            if time == self.end_times[0] {
+                self.end_times.remove(0);
+                self.transitions.remove(0);
+                self.values[1] = CurveYValue::new_single(self.get_point_value(point));
+                self.values.remove(0);
+            }
 
-        if point.index == 1 {
             self.end_times.iter_mut().for_each(|f| *f -= time);
 
-        } else if point.index >= self.values.len() - 1 {
+        } else if self.point_is_end(point) {
             let min_time = self.end_times[self.end_times.len() - 2];
-            *self.end_times.last_mut().unwrap() = time.max(min_time);
+            if time <= min_time {
+                let value = self.get_point_value(point);
+                self.end_times.pop();
+                self.transitions.pop();
+                self.values.pop();
+                *self.values.last_mut().unwrap() = CurveYValue::new_single(value);
 
-        } else {
+            } else {
+                *self.end_times.last_mut().unwrap() = time.max(min_time);
+            }
+
+        } else if point.side == CurvePointSide::Continuous {
             let min_time = if point.index == 1 {
                 // if end_time of this point is at index 0,
                 0.0
@@ -633,7 +622,79 @@ impl Curve {
                 self.end_times[point.index - 2]
             };
             let max_time = self.end_times[point.index];
-            self.end_times[point.index - 1] = time.clamp(min_time, max_time);
+
+            if time <= min_time {
+                let value = self.get_point_value(point);
+                self.values.remove(point.index);
+                self.transitions.remove(point.index - 1);
+                self.end_times.remove(point.index - 1);
+
+                self.values[point.index - 1].right_limit = value;
+
+                // ensure first point is continuous
+                // it may be that we fuse with the first point
+                self.values[0].left_limit = self.values[0].right_limit;
+
+            } else if time >= max_time {
+                let value = self.get_point_value(point);
+                self.values.remove(point.index);
+                self.transitions.remove(point.index);
+                self.end_times.remove(point.index - 1);
+
+                self.values[point.index].left_limit = value;
+
+                // ensure last point is continuous
+                // it may be that we fuse with the last point
+                let last = self.values.last_mut().unwrap();
+                last.right_limit = last.left_limit;
+
+            } else {
+                self.end_times[point.index - 1] = time.clamp(min_time, max_time);
+            }
+
+        } else {
+            if point.side == CurvePointSide::Left && time < self.get_point_time(point) {
+                let min_time = self.get_point_time(self.prev_point(point).unwrap());
+                let value = self.get_point_value(point);
+
+                let val = &mut self.values[point.index];
+                val.left_limit = val.right_limit;
+
+                if time <= min_time {
+                    self.values[point.index - 1].right_limit = value;
+                    self.transitions[point.index - 1] = CurveShape::Linear;
+
+                    // ensure first point is continuous
+                    // it may be that we re-fuse with the first point
+                    self.values[0].left_limit = self.values[0].right_limit;
+
+                } else {
+                    self.values.insert(point.index, CurveYValue::new_single(value));
+                    self.transitions.insert(point.index, CurveShape::Linear);
+                    self.end_times.insert(point.index - 1, time);
+                }
+            } else if point.side == CurvePointSide::Right && time > self.get_point_time(point) {
+                let max_time = self.get_point_time(self.next_point(point).unwrap());
+                let value = self.get_point_value(point);
+
+                let val = &mut self.values[point.index];
+                val.right_limit = val.left_limit;
+
+                if time >= max_time {
+                    self.values[point.index + 1].left_limit = value;
+                    self.transitions[point.index] = CurveShape::Linear;
+
+                    // ensure first point is continuous
+                    // it may be that we re-fuse with the first point
+                    let last = self.values.last_mut().unwrap();
+                    last.right_limit = last.left_limit;
+
+                } else {
+                    self.values.insert(point.index + 1, CurveYValue::new_single(value));
+                    self.transitions.insert(point.index + 1, CurveShape::Linear);
+                    self.end_times.insert(point.index, time);
+                }
+            }
         }
     }
 
@@ -695,30 +756,50 @@ impl Curve {
         }
     }
 
+    // gets the curve shape to the left of the point
+    pub fn get_point_left_shape(&self, point: CurvePointId) -> Option<CurveShape> {
+        debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
+        if self.point_is_start(point) {
+            None
+        } else {
+            Some(self.transitions[point.index - 1])
+        }
+    }
+
+    // gets the curve shape to the right of the point
+    pub fn get_point_right_shape(&self, point: CurvePointId) -> Option<CurveShape> {
+        debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
+        if self.point_is_end(point) {
+            None
+        } else {
+            Some(self.transitions[point.index])
+        }
+    }
+
     // gets the segment to the left of the point
     pub fn get_point_left_segment(&self, point: CurvePointId) -> Option<CurveSegmentId> {
         debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
-        if point.index > 0 {
-            Some(CurveSegmentId { index: point.index - 1 })
-        } else {
+        if self.point_is_start(point) {
             None
+        } else {
+            Some(CurveSegmentId { index: point.index - 1 })
         }
     }
 
     // gets the segment to the right of the point
     pub fn get_point_right_segment(&self, point: CurvePointId) -> Option<CurveSegmentId> {
         debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
-        if point.index < self.values.len() - 1 {
-            Some(CurveSegmentId { index: point.index })
-        } else {
+        if self.point_is_end(point) {
             None
+        } else {
+            Some(CurveSegmentId { index: point.index })
         }
     }
     
     // returns the point to the left of the given point
     pub fn prev_point(&self, point: CurvePointId) -> Option<CurvePointId> {
         debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
-        if point.index == 0 {
+        if self.point_is_start(point) {
             None
         } else if point.side == CurvePointSide::Right {
             Some(CurvePointId {
@@ -740,7 +821,7 @@ impl Curve {
     // returns the point to the right of the given point
     pub fn next_point(&self, point: CurvePointId) -> Option<CurvePointId> {
         debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
-        if point.index == self.values.len() - 1 {
+        if self.point_is_end(point) {
             None
         } else if point.side == CurvePointSide::Left {
             Some(CurvePointId {
@@ -762,7 +843,7 @@ impl Curve {
     // returns the segment to the left of the given segment
     pub fn prev_segment(&self, segment: CurveSegmentId) -> Option<CurveSegmentId> {
         debug_assert!(self.segment_is_valid(segment), "point is not contained in the curve");
-        if segment.index == 0 {
+        if self.segment_is_start(segment) {
             None
         } else {
             Some(CurveSegmentId {
@@ -774,13 +855,19 @@ impl Curve {
     // returns the segment to the right of the given segment
     pub fn next_segment(&self, segment: CurveSegmentId) -> Option<CurveSegmentId> {
         debug_assert!(self.segment_is_valid(segment), "point is not contained in the curve");
-        if segment.index == self.transitions.len() - 1 {
+        if self.segment_is_end(segment) {
             None
         } else {
             Some(CurveSegmentId {
                 index: segment.index + 1
             })
         }
+    }
+
+    // returns true if the given point is neither the first nor last in the curve
+    pub fn point_is_intermediate(&self, point: CurvePointId) -> bool {
+        debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
+        point.index > 0 && point.index < self.values.len() - 1
     }
 
     // returns true if the given point is the first in the curve
@@ -873,6 +960,11 @@ impl Curve {
     // returns an iterator over the coordinates of the points in the curve
     pub fn point_coords_iter(&self) -> impl Iterator {
         self.point_iter().map(|f| self.get_point_coords(f))
+    }
+    
+    // returns an iterator over the pairs of points in the curve
+    pub fn point_pairs_iter(&self) -> impl Iterator<Item = (CurvePointId, CurvePointId)> {
+        self.point_iter().zip(self.point_iter().skip(1))
     }
 }
 
