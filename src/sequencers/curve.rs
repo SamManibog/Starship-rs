@@ -1,4 +1,4 @@
-use std::f64;
+use std::{cmp::Ordering, f64};
 
 /// a segment not associated with a curve
 #[derive(Debug, Clone, PartialEq)]
@@ -25,6 +25,23 @@ pub struct CurvePointId {
     side: CurvePointSide
 }
 
+impl PartialOrd for CurvePointId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(&other))
+    }
+}
+
+impl Ord for CurvePointId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let index_cmp = self.index.cmp(&other.index);
+        if index_cmp == Ordering::Equal {
+            self.side.cmp(&other.side)
+        } else {
+            index_cmp
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CurvePointSide {
     /// the point is continuous (left and right are the same)
@@ -35,6 +52,34 @@ pub enum CurvePointSide {
 
     /// the right-hand limit of a discontinuity point
     Right,
+}
+
+impl PartialOrd for CurvePointSide {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(&other))
+    }
+}
+
+impl Ord for CurvePointSide {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self {
+            Self::Left => match other {
+                Self::Left => Ordering::Equal,
+                Self::Continuous | Self::Right => Ordering::Less,
+            },
+            
+            Self::Continuous => match other {
+                Self::Left => Ordering::Greater,
+                Self::Continuous => Ordering::Equal,
+                Self::Right => Ordering::Less,
+            },
+
+            Self::Right => match other {
+                Self::Left | Self::Continuous => Ordering::Greater,
+                Self::Right => Ordering::Equal,
+            },
+        }
+    }
 }
 
 impl CurvePointSide {
@@ -983,6 +1028,13 @@ impl Curve {
         CurveSegmentId {
             index: 0,
         }
+    }
+
+    // checks if a continuous point contains the given partial point
+    // or if two points are equal
+    pub fn does_point_contain_partial(&self, point: CurvePointId, partial: CurvePointId) -> bool {
+        return point == partial ||
+        (point.index == partial.index && self.values[point.index].is_continuous())
     }
 
     // returns the last segment in the curve

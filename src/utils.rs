@@ -23,133 +23,166 @@ impl<T: Display> Display for PitchOrValue<T> {
     }
 }
 
+/// creates a text_edit for either a pitch or number
+/// returns true if value has been updated
 pub fn pitch_or_number_input<T>(
     ui: &mut Ui,
     text: &mut String,
     value: &mut PitchOrValue<T>
-) where T: FromStr + Display {
+) -> bool where T: FromStr + Display {
     let mut new_text = text.clone();
     let response = ui.text_edit_singleline(&mut new_text);
     if response.changed() {
         *text = new_text;
     }
 
+    let mut updated = false;
     if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
         if let Ok(new_value) = text.parse::<Pitch>() {
             *value = PitchOrValue::Pitch(new_value);
+            updated = true;
         } else if let Ok(new_value) = text.parse::<T>() {
-            *value = PitchOrValue::Value(new_value)
+            *value = PitchOrValue::Value(new_value);
+            updated = true;
         }
         *text = value.to_string();
     }
+    updated
 }
 
+/// creates a text_edit for either a pitch or positive number
+/// returns true if value has been updated
 pub fn pitch_or_pos_number_input<T>(
     ui: &mut Ui,
     text: &mut String,
     value: &mut PitchOrValue<T>
-) where T: FromStr + Display + PositiveCheckable {
+) -> bool where T: FromStr + Display + PositiveCheckable {
     let mut new_text = text.clone();
     let response = ui.text_edit_singleline(&mut new_text);
     if response.changed() {
         *text = new_text;
     }
 
+    let mut updated = false;
     if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
         if let Ok(new_value) = text.parse::<Pitch>() {
             *value = PitchOrValue::Pitch(new_value);
+            updated = true;
         } else if let Ok(new_value) = text.parse::<T>() {
             if new_value.is_positive() {
-                *value = PitchOrValue::Value(new_value)
+                *value = PitchOrValue::Value(new_value);
+                updated = true;
             }
         }
         *text = value.to_string();
     }
+    updated
 }
 
+/// creates a text_edit for either a pitch or non-negative number
+/// returns true if value has been updated
 pub fn pitch_or_non_neg_number_input<T>(
     ui: &mut Ui,
     text: &mut String,
     value: &mut PitchOrValue<T>
-) where T: FromStr + Display + NonNegativeCheckable {
+) -> bool where T: FromStr + Display + NonNegativeCheckable {
     let mut new_text = text.clone();
     let response = ui.text_edit_singleline(&mut new_text);
     if response.changed() {
         *text = new_text;
     }
 
+    let mut updated = false;
     if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
         if let Ok(new_value) = text.parse::<Pitch>() {
             *value = PitchOrValue::Pitch(new_value);
+            updated = true;
         } else if let Ok(new_value) = text.parse::<T>() {
             if new_value.is_non_negative() {
-                *value = PitchOrValue::Value(new_value)
+                *value = PitchOrValue::Value(new_value);
+                updated = true;
             }
         }
         *text = value.to_string();
     }
+    updated
 }
 
 
+/// creates a text_edit for a number
+/// returns true if value has been updated
 pub fn number_input<T>(
     ui: &mut Ui,
     text: &mut String,
     value: &mut T
-) where T: FromStr + Display {
+) -> bool where T: FromStr + Display {
     let mut new_text = text.clone();
     let response = ui.text_edit_singleline(&mut new_text);
     if response.changed() {
         *text = new_text;
     }
 
+    let mut updated = false;
     if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
         if let Ok(new_value) = text.parse::<T>() {
             *value = new_value;
+            updated = true;
         }
         *text = value.to_string();
     }
+    updated
 }
 
+/// creates a text_edit for a positive number
+/// returns true if value has been updated
 pub fn pos_number_input<T>(
     ui: &mut Ui,
     text: &mut String,
     value: &mut T
-) where T: FromStr + Display + PositiveCheckable {
+) -> bool  where T: FromStr + Display + PositiveCheckable {
     let mut new_text = text.clone();
     let response = ui.text_edit_singleline(&mut new_text);
     if response.changed() {
         *text = new_text;
     }
 
+    let mut updated = false;
     if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
         if let Ok(new_value) = text.parse::<T>() {
             if new_value.is_positive() {
                 *value = new_value;
+                updated = true;
             }
         }
         *text = value.to_string();
     }
+    updated
 }
 
+/// creates a text_edit for a non-negative number
+/// returns true if value has been updated
 pub fn non_neg_number_input<T>(
     ui: &mut Ui,
     text: &mut String,
     value: &mut T
-) where T: FromStr + Display + NonNegativeCheckable {
+) -> bool  where T: FromStr + Display + NonNegativeCheckable {
     let mut new_text = text.clone();
     let response = ui.text_edit_singleline(&mut new_text);
     if response.changed() {
         *text = new_text;
     }
 
+    let mut updated = false;
     if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
         if let Ok(new_value) = text.parse::<T>() {
             if new_value.is_non_negative() {
                 *value = new_value;
+                updated = true;
             }
         }
         *text = value.to_string();
     }
+    updated
 }
 
 /// Trait used for input utils. Ensures you can check if a value is positive.
