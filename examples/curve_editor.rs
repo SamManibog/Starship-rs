@@ -1,5 +1,5 @@
-use egui::{Frame, Pos2, Rect, Sense, Stroke, UiBuilder, Vec2, Window};
-use starship_rust::{sequencers::curve::{Curve, CurvePointId}, utils};
+use egui::{epaint::CubicBezierShape, Button, Color32, Frame, Pos2, Rect, Sense, Ui, UiBuilder, Vec2};
+use starship_rust::{sequencers::curve::{Curve, CurvePointId, CurveSegmentId}, utils};
 
 fn main() -> eframe::Result {
     let native_options = eframe::NativeOptions {
@@ -43,15 +43,15 @@ struct PointConfigMenu {
 }
 
 impl EditState {
-    pub fn is_viewing(&self) -> bool {
+    fn is_viewing(&self) -> bool {
         matches!(*self, Self::Viewing)
     }
 
-    pub fn is_premoving(&self) -> bool {
+    fn is_premoving(&self) -> bool {
         matches!(*self, Self::PreMoving(_))
     }
 
-    pub fn is_moving(&self) -> bool {
+    fn is_moving(&self) -> bool {
         matches!(*self, Self::Moving(_))
     }
 
@@ -63,11 +63,11 @@ impl EditState {
         }
     }
 
-    pub fn is_configuring(&self) -> bool {
+    fn is_configuring(&self) -> bool {
         matches!(*self, Self::Configuring(_, _))
     }
 
-    pub fn is_configuring_point(&self, point: CurvePointId) -> bool {
+    fn is_configuring_point(&self, point: CurvePointId) -> bool {
         if let Self::Configuring(pt, _) = self && *pt == point {
             true
         } else {
@@ -77,39 +77,51 @@ impl EditState {
 }
 
 struct CurveEditor {
+    /// the curve being edited
     curve: Curve,
+
+    /// the current state of the editor
     edit_state: EditState,
+
+    /// the last known mouse position on the editor
     saved_mouse_pos: Pos2,
+
+    /// if the last edit state was configuring a point
+    last_config_point: Option<CurvePointId>
 }
 
 impl CurveEditor {
-    const POINT_RADIUS: f32 = 6.0;
+    const LINE_THICKNESS: f32 = 1.5;
+    const POINT_RADIUS: f32 = 3.0;
+    const POINT_INTERACT_RADIUS: f32 = 8.0;
     const POINT_COLOR: egui::Color32 = egui::Color32::WHITE;
     const FOCUS_POINT_COLOR: egui::Color32 = egui::Color32::RED;
 
     pub const MIN_WIDTH: f32 = 200.0;
     pub const MIN_HEIGHT: f32 = 200.0;
 
-    const CONFIG_WIDTH: f32 = 100.0;
-    const CONFIG_HEIGHT: f32 = 100.0;
+    const CONFIG_WIDTH: f32 = 150.0;
+    const CONFIG_HEIGHT: f32 = 150.0;
     const CONFIG_X_OFFSET: f32 = 10.0;
     const CONFIG_Y_OFFSET: f32 = 10.0;
 
     const POPUP_PADDING: f32 = 20.0;
+    const POPUP_MARGIN: f32 = 4.0;
 
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut curve = Curve::new(0.5, 1.0);
-        curve.add_point(0.2);
-        curve.add_point(0.3);
+        curve.insert_point_at_time(0.2);
+        curve.insert_point_at_time(0.3);
         curve.set_point_value(curve.get_nearest_point(0.3), 0.2);
-        curve.add_point(0.5);
+        curve.insert_point_at_time(0.5);
         curve.set_point_value(curve.get_nearest_point(0.5), 0.2);
-        curve.add_point(0.7);
+        curve.insert_point_at_time(0.7);
         curve.set_point_value(curve.get_nearest_point(0.7), 0.5);
         Self {
             curve,
             edit_state: EditState::Viewing,
-            saved_mouse_pos: Pos2::ZERO
+            saved_mouse_pos: Pos2::ZERO,
+            last_config_point: None,
         }
     }
 
@@ -155,9 +167,6 @@ impl CurveEditor {
         let transform_inv_y = |y: f32| {
             (curve_rext.max.y as f64 - y as f64) / curve_y_dim as f64
         };
-        let transform_inv = |p: Pos2| {
-            (transform_inv_x(p.x), transform_inv_y(p.y))
-        };
 
         if response.drag_started() && let EditState::PreMoving(point) = self.edit_state {
             self.edit_state = EditState::Moving(point);
@@ -187,12 +196,46 @@ impl CurveEditor {
                         mouse_pos.y.clamp(min_y, max_y)
                     );
 
-                    painter.line_segment([l_point, point], egui::Stroke::new(4.0, Self::POINT_COLOR));
-                    painter.line_segment([point, r_point], egui::Stroke::new(4.0, Self::POINT_COLOR));
+                    if let Some(l_segment) = self.curve.make_segment(l_point_id, point_id) {
+                        let l_bezier_points = self.curve
+                            .get_segment_shape(l_segment)
+                            .bezier_approximation(l_point, point);
+                        let l_bezier = CubicBezierShape::from_points_stroke(
+                            l_bezier_points,
+                            false,
+                            Color32::TRANSPARENT,
+                            egui::Stroke::new(Self::LINE_THICKNESS, Self::POINT_COLOR)
+                        );
+                        painter.add(l_bezier);
+                    } else {
+                        painter.line_segment(
+                            [l_point, point],
+                            egui::Stroke::new(Self::LINE_THICKNESS, Self::POINT_COLOR)
+                        );
+                    }
+
+                    if let Some(r_segment) = self.curve.make_segment(point_id, r_point_id) {
+                        let r_bezier_points = self.curve
+                            .get_segment_shape(r_segment)
+                            .bezier_approximation(point, r_point);
+                        let r_bezier = CubicBezierShape::from_points_stroke(
+                            r_bezier_points,
+                            false,
+                            Color32::TRANSPARENT,
+                            egui::Stroke::new(Self::LINE_THICKNESS, Self::POINT_COLOR)
+                        );
+                        painter.add(r_bezier);
+                    } else {
+                        painter.line_segment(
+                            [point, r_point],
+                            egui::Stroke::new(Self::LINE_THICKNESS, Self::POINT_COLOR)
+                        );
+                    }
+
                     painter.circle_filled(
                         point,
                         Self::POINT_RADIUS,
-                        Self::POINT_COLOR
+                        Self::FOCUS_POINT_COLOR
                     );
                 }
 
@@ -203,11 +246,21 @@ impl CurveEditor {
                         mouse_pos.y.clamp(min_y, max_y)
                     );
 
-                    painter.line_segment([l_point, point], egui::Stroke::new(4.0, Self::POINT_COLOR));
+                    let l_bezier_points = self.curve.get_segment_shape(
+                        self.curve.make_segment(l_point_id, point_id).unwrap()
+                    ).bezier_approximation(l_point, point);
+                    let l_bezier = CubicBezierShape::from_points_stroke(
+                        l_bezier_points,
+                        false,
+                        Color32::TRANSPARENT,
+                        egui::Stroke::new(Self::LINE_THICKNESS, Self::POINT_COLOR)
+                    );
+
+                    painter.add(l_bezier);
                     painter.circle_filled(
                         point,
                         Self::POINT_RADIUS,
-                        Self::POINT_COLOR
+                        Self::FOCUS_POINT_COLOR
                     );
                 }
 
@@ -218,11 +271,21 @@ impl CurveEditor {
                         mouse_pos.y.clamp(min_y, max_y)
                     );
 
-                    painter.line_segment([point, r_point], egui::Stroke::new(4.0, Self::POINT_COLOR));
+                    let r_bezier_points = self.curve.get_segment_shape(
+                        self.curve.make_segment(point_id, r_point_id).unwrap()
+                    ).bezier_approximation(point, r_point);
+                    let r_bezier = CubicBezierShape::from_points_stroke(
+                        r_bezier_points,
+                        false,
+                        Color32::TRANSPARENT,
+                        egui::Stroke::new(Self::LINE_THICKNESS, Self::POINT_COLOR)
+                    );
+
+                    painter.add(r_bezier);
                     painter.circle_filled(
                         point,
                         Self::POINT_RADIUS,
-                        Self::POINT_COLOR
+                        Self::FOCUS_POINT_COLOR
                     );
                 }
 
@@ -244,7 +307,20 @@ impl CurveEditor {
             let point1 = transform(p1);
             let point2 = transform(p2);
 
-            painter.line_segment([point1, point2], egui::Stroke::new(4.0, Self::POINT_COLOR));
+            if let Some(seg_id) = self.curve.make_segment(p1_id, p2_id) {
+                let segment_shape = self.curve.get_segment_shape(seg_id);
+                let bezier_points = segment_shape.bezier_approximation(point1, point2);
+                let bezier = CubicBezierShape::from_points_stroke(
+                    bezier_points,
+                    false,
+                    Color32::TRANSPARENT,
+                    egui::Stroke::new(Self::LINE_THICKNESS, Self::POINT_COLOR)
+                );
+                painter.add(bezier);
+            } else {
+                painter.line_segment([point1, point2], egui::Stroke::new(Self::LINE_THICKNESS, Self::POINT_COLOR));
+            }
+
         }
 
         // draw non-moving points
@@ -253,27 +329,33 @@ impl CurveEditor {
                 let coords = transform(self.curve.get_point_coords(point_id));
 
                 if let Some(response_pos) = response.interact_pointer_pos() {
-                    let on_point = (response_pos - coords).length() <= Self::POINT_RADIUS;
+                    let on_point = (response_pos - coords).length() <= Self::POINT_INTERACT_RADIUS;
                     if on_point {
                         if response.secondary_clicked() {
+                            self.last_config_point = Some(point_id);
                             self.edit_state = EditState::Configuring(
                                 point_id, 
                                 PointConfigMenu {
                                     time_text: self.curve.get_point_time(point_id).to_string(),
                                     value_text: self.curve.get_point_value(point_id).to_string()
                                 }
-                            )
+                            );
                         } else if response.is_pointer_button_down_on() && !self.edit_state.is_moving() {
                             self.edit_state = EditState::PreMoving(point_id);
                         }
                     }
                 }
 
+                let should_focus = match self.edit_state {
+                    EditState::Configuring(cfg_id, _) => self.curve.does_point_contain_partial(point_id, cfg_id),
+                    EditState::PreMoving(point) => point_id == point,
+                    _ => false
+                };
+
                 painter.circle_filled(
                     coords,
                     Self::POINT_RADIUS,
-                    if let EditState::Configuring(cfg_id, _) = self.edit_state
-                    && self.curve.does_point_contain_partial(point_id, cfg_id) {
+                    if should_focus {
                         Self::FOCUS_POINT_COLOR
                     } else {
                         Self::POINT_COLOR
@@ -294,13 +376,25 @@ impl CurveEditor {
                 point
             };
 
-            self.curve.set_point_value(new_point, y as f64);
-            self.edit_state = EditState::Viewing;
+            let new_point = self.curve.set_point_value(new_point, y as f64);
+            if let Some(last_point) = self.last_config_point && last_point == point {
+                self.edit_state = EditState::Configuring(
+                    new_point, 
+                    PointConfigMenu {
+                        time_text: self.curve.get_point_time(new_point).to_string(),
+                        value_text: self.curve.get_point_value(new_point).to_string()
+                    }
+                );
+            } else {
+                self.edit_state = EditState::Viewing;
+            }
+
         }
 
         // detect if editing has stopped
         if response.clicked() && !self.edit_state.is_premoving() {
             self.edit_state = EditState::Viewing;
+            self.last_config_point = None;
         }
 
         // whether or not we should return to view state
@@ -312,19 +406,22 @@ impl CurveEditor {
 
             let popup_pos = Pos2 {
                 x: (coords.x + Self::CONFIG_X_OFFSET).clamp(
-                    curve_rext.min.x + Self::POPUP_PADDING,
-                    curve_rext.max.x - Self::CONFIG_WIDTH - Self::POPUP_PADDING
+                    curve_rext.min.x + Self::POPUP_PADDING + Self::POPUP_MARGIN,
+                    curve_rext.max.x - Self::CONFIG_WIDTH - Self::POPUP_PADDING - Self::POPUP_MARGIN
                 ),
                 y: (coords.y + Self::CONFIG_Y_OFFSET).clamp(
-                    curve_rext.min.y + Self::POPUP_PADDING,
-                    curve_rext.max.y - Self::CONFIG_HEIGHT - Self::POPUP_PADDING
+                    curve_rext.min.y + Self::POPUP_PADDING + Self::POPUP_MARGIN,
+                    curve_rext.max.y - Self::CONFIG_HEIGHT - Self::POPUP_PADDING - Self::POPUP_MARGIN
                 ),
             };
 
             let popup_rect = Rect::from_min_size(popup_pos, Vec2::new(Self::CONFIG_WIDTH, Self::CONFIG_HEIGHT));
 
-            ui.scope_builder(UiBuilder::new().max_rect(popup_rect), |mut ui| {
-                let frame = Frame::new();
+            ui.scope_builder(UiBuilder::new().max_rect(popup_rect).sense(Sense::click()), |mut ui| {
+                let frame = Frame::new()
+                    .stroke(ui.visuals().window_stroke)
+                    .fill(ui.visuals().window_fill)
+                    .inner_margin(Self::POPUP_MARGIN);
                 frame.show(&mut ui, |ui| {
                     ui.label("Value:");
                     let mut value = coords.y;
@@ -340,11 +437,57 @@ impl CurveEditor {
                             *point = self.curve.set_point_time(*point, time as f64);
                             menu_data.time_text = self.curve.get_point_time(*point).to_string();
                         }
+                    }
 
-                        if ui.button("Delete Point").clicked() {
-                            self.curve.remove_point(*point);
+                    ui.horizontal(|ui| {
+                        ui.label("Add Point:");
+                        let left_button = Button::new("L");
+                        if ui.add_enabled(!self.curve.point_is_start(*point), left_button).clicked() {
+                            let left_time = self.curve.get_point_time(self.curve.prev_point(*point).unwrap());
+                            let right_time = self.curve.get_point_time(*point);
+                            self.curve.insert_point_at_time((right_time + left_time) / 2.0);
                             start_viewing = true;
                         }
+
+                        let right_button = Button::new("R");
+                        if ui.add_enabled(!self.curve.point_is_end(*point), right_button).clicked() {
+                            let left_time = self.curve.get_point_time(*point);
+                            let right_time = self.curve.get_point_time(self.curve.next_point(*point).unwrap());
+                            self.curve.insert_point_at_time((right_time + left_time) / 2.0);
+                            start_viewing = true;
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("LShape:");
+
+                        if let Some(segment) = self.curve.get_point_left_segment(*point) {
+                            Self::segment_shape_editor(&mut self.curve, ui, segment);
+                        } else {
+                            ui.add_enabled_ui(false, |ui| {
+                                let _ = ui.button("----");
+                                let _ = ui.button("---");
+                            });
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("RShape:");
+
+                        if let Some(segment) = self.curve.get_point_right_segment(*point) {
+                            Self::segment_shape_editor(&mut self.curve, ui, segment);
+                        } else {
+                            ui.add_enabled_ui(false, |ui| {
+                                let _ = ui.button("----");
+                                let _ = ui.button("---");
+                            });
+                        }
+                    });
+
+                    let delete_button = Button::new("Delete");
+                    if ui.add_enabled(self.curve.point_is_intermediate(*point), delete_button).clicked() {
+                        self.curve.remove_point(*point);
+                        start_viewing = true;
                     }
 
                 })
@@ -352,10 +495,34 @@ impl CurveEditor {
         }
         
         if start_viewing {
-            self.edit_state = EditState::Viewing
+            self.edit_state = EditState::Viewing;
+            self.last_config_point = None;
         }
 
     }
+
+    fn segment_shape_editor(curve: &mut Curve, ui: &mut Ui, segment: CurveSegmentId) {
+        let shape = curve.get_segment_shape(segment);
+        let direction_button = Button::new(if shape.is_linear() {
+            "---"
+        } else {
+                shape.direction.name_brief()
+            });
+
+        if ui.button(shape.shape.name_brief_4()).clicked() {
+            curve.set_segment_shape(
+                segment,
+                shape.with_shape(shape.shape.next())
+            );
+        }
+        if ui.add_enabled(!shape.is_linear(), direction_button).clicked() {
+            curve.set_segment_shape(
+                segment,
+                shape.with_direction(shape.direction.next())
+            );
+        }
+    }
+
 }
 
 impl eframe::App for CurveEditor {

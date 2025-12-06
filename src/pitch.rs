@@ -368,7 +368,7 @@ impl Pitch {
     }
 
     /// Get the frequency of the pitch using the given tuning system
-    pub fn frequency(&self, tuning_system: TuningSystem) -> f32 {
+    pub fn frequency(&self, tuning_system: TuningSystem) -> f64 {
         tuning_system.get_pitch_frequency(&self)
     }
 }
@@ -376,11 +376,11 @@ impl Pitch {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TuningSystem {
     /// Twelve-tone equal temperment. Value contains pitch of A4.
-    EqualTemperment(f32)
+    EqualTemperment(f64)
 }
 
 impl TuningSystem {
-    pub fn get_pitch_frequency(&self, pitch: &Pitch) -> f32 {
+    pub fn get_pitch_frequency(&self, pitch: &Pitch) -> f64 {
         match self {
             Self::EqualTemperment(a4) => equal_temperment::get_pitch_frequency(*a4, pitch)
         }
@@ -391,35 +391,35 @@ pub mod equal_temperment {
     use super::*;
 
     /// Gets the frequency of the given pitch, given the frequency of A4
-    pub fn get_pitch_frequency(a4: f32, pitch: &Pitch) -> f32 {
-        (a4 as f64 * 2.0_f64.powf(
+    pub fn get_pitch_frequency(a4: f64, pitch: &Pitch) -> f64 {
+        a4 as f64 * 2.0_f64.powf(
             pitch.quarter_delta() as f64
             / Pitch::MICROTONES_PER_OCTAVE as f64
-        )) as f32
+        )
     }
 
     /// quantizes x to the nearest half tone frequency
     /// Assumes x is greater than zero
-    pub fn quantize_semitone(a4: f32, x: f32) -> f32 {
-        let quantize_index = f64::round(12.0 * f64::log2(x as f64 / a4 as f64));
-        (a4 as f64 * f64::powf(2.0, quantize_index / 12.0)) as f32
+    pub fn quantize_semitone(a4: f64, x: f64) -> f64 {
+        let quantize_index = f64::round(12.0 * f64::log2(x / a4));
+        a4 * f64::powf(2.0, quantize_index / 12.0)
     }
 
     /// quantizes x to the nearest quarter tone frequency
     /// Assumes x is greater than zero
-    pub fn quantize_microtone(a4: f32, x: f32) -> f32 {
-        let quantize_index = f64::round(24.0 * f64::log2(x as f64 / a4 as f64));
-        (a4 as f64 * f64::powf(2.0, quantize_index / 24.0)) as f32
+    pub fn quantize_microtone(a4: f64, x: f64) -> f64 {
+        let quantize_index = f64::round(24.0 * f64::log2(x / a4));
+        a4 * f64::powf(2.0, quantize_index / 24.0)
     }
 
     /// quantizes x to the nearest major scale note of the given root
-    pub fn quantize_major_scale(root: f32, x: f32) -> f32 {
+    pub fn quantize_major_scale(root: f64, x: f64) -> f64 {
         // picker function
         fn p(x: f64) -> f64 {
             f64::min(1.0, (x + 12.0) % 12.0)
         }
-        let i = f64::round(12.0 * f64::log2(x as f64 / root as f64));
+        let i = f64::round(12.0 * f64::log2(x / root));
         let s = i + p(i - 1.0) + p(i - 3.0) + p(i - 6.0) + p(i - 8.0) + p(i - 10.0) - 5.0;
-        (root as f64 * f64::powf(2.0, s / 12.0)) as f32
+        root * f64::powf(2.0, s / 12.0)
     }
 }

@@ -88,7 +88,7 @@ impl AutomationSequencer {
         if time <= 0.0 || time >= self.duration {
             None
         } else {
-            self.curve.add_point(time / self.duration)
+            self.curve.insert_point_at_time(time / self.duration)
         }
     }
 

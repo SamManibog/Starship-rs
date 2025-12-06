@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{live_plugin_id::LivePluginId, plugin_graph::{EffectGraph, PlaybackOrder}};
+use crate::{live_plugin_id::LivePluginId, pitch::equal_temperment, plugin_graph::{EffectGraph, PlaybackOrder}};
 
 pub type NoteId = u32;
 pub type InputId = u32;
@@ -181,6 +181,11 @@ pub struct InputSpecification {
     /// A shortened name for the input
     pub short_name: String,
 
+    /// Whether the input should be given as frequencies of notes
+    /// this changes the behavior of curves to account for the logarithmic scale
+    /// used by tuning systems
+    pub is_note_input: bool,
+
 	/// The allowed range of values for the automatable input
     /// Input values are clamped during runtime.
     ///	You must ensure range.0 < range.1, both values must also be real numbers
@@ -188,43 +193,73 @@ pub struct InputSpecification {
 
     /// the number of allowed values for the input.
     /// values will be passed with an even distribution within the specified range
-    /// 0 or 1 corresponds to a continuous amount of values (no snapping)
+    /// 0 corresponds to a continuous amount of values (no snapping)
+    /// 1 corresponds to snapping between notes (no microtones allowed)
     /// 2 corresponds to two possible input values
     /// 3 corresponds to three possible input values and so on
+    ///
+    /// Notes:
+    /// 	- if is_note_input is true, only 0 or 1 may be used
+    /// 	- a value of 1 may only be used if is_note_input is true
+    ///
     pub input_values: u32,
 
     /// The default value of the input
     /// When reset is called on the plugin that produced it,
     /// the input should default to this value
+    ///
+    /// default should be within self.range
     pub default: f64
 }
 
 impl InputSpecification {
+    /// whether or not the specification is valid
+    pub fn is_valid(&self) -> bool {
+        // check that range does not just allow only a single number
+        (self.range.0 < self.range.1)
+
+        // check default is within our range
+        && (self.range.0 <= self.default && self.default <= self.range.1)
+
+        // check that if is_note_input is true, then input_values is 0 or 1
+        && (!self.is_note_input || self.input_values <= 1)
+
+        // check that if input_values is 1, is_note_input is true
+        && (self.input_values != 1 || self.is_note_input)
+    }
+
     /// whether or not the input supports continouous values
     pub fn is_continuous(&self) -> bool {
-        self.input_values <= 1
+        self.input_values == 0
     }
 
     /// whether the input requires discrete values
     pub fn is_discrete(&self) -> bool {
-        self.input_values > 1
+        self.input_values > 0
     }
 
-    /// snaps the given value based on this specificiation's range and input_values
+    /// snaps the given value based on...
+    /// 	1) self.range
+    /// 	2) self.input_values
+    /// 	3) self.is_note_input
+    /// assumes this specification is valid
     pub fn snap(&self, value: f64) -> f64 {
         let clamped = value.clamp(self.range.0, self.range.1);
 
         if self.is_continuous() {
-            return clamped;
+            clamped
+        } else if self.is_note_input {
+            equal_temperment::quantize_semitone(440.0, value)
+        } else {
+            let range_diff = self.range.1 - self.range.0;
+            let steps = (self.input_values - 1) as f64;
+            let scale_factor = steps / range_diff;
+
+            //f64::round( steps * (clamped - self.range.0) / range_diff ) * range_diff / steps + self.range.0
+            f64::round( scale_factor * (clamped - self.range.0) ) / scale_factor + self.range.0
         }
-
-        let range_diff = self.range.1 - self.range.0;
-        let steps = (self.input_values - 1) as f64;
-        let scale_factor = steps / range_diff;
-
-        //f64::round( steps * (clamped - self.range.0) / range_diff ) * range_diff / steps + self.range.0
-        f64::round( scale_factor * (clamped - self.range.0) ) / scale_factor + self.range.0
     }
+
 }
 
 pub struct LiveEffectContainer {

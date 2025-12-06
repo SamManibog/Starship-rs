@@ -98,9 +98,9 @@ pub struct EtMajorSampleQuantizer {}
 
 impl Circuit for EtMajorSampleQuantizer {
     fn operate(&mut self, inputs: &[f32], outputs: &mut[f32], _: f32) {
-        let sample = inputs[0];
-        let root = inputs[1];
-        outputs[0] = crate::pitch::equal_temperment::quantize_major_scale(root, sample);
+        let sample = inputs[0] as f64;
+        let root = inputs[1] as f64;
+        outputs[0] = crate::pitch::equal_temperment::quantize_major_scale(root, sample) as f32;
     }
 }
 
@@ -110,9 +110,9 @@ pub struct EtSemitoneSampleQuantizer {}
 
 impl Circuit for EtSemitoneSampleQuantizer {
     fn operate(&mut self, inputs: &[f32], outputs: &mut[f32], _: f32) {
-        let sample = inputs[0];
-        let a4 = inputs[1];
-        outputs[0] = crate::pitch::equal_temperment::quantize_semitone(a4, sample);
+        let sample = inputs[0] as f64;
+        let a4 = inputs[1] as f64;
+        outputs[0] = crate::pitch::equal_temperment::quantize_semitone(a4, sample) as f32;
     }
 }
 
@@ -122,9 +122,9 @@ pub struct EtMicrotoneSampleQuantizer {}
 
 impl Circuit for EtMicrotoneSampleQuantizer {
     fn operate(&mut self, inputs: &[f32], outputs: &mut[f32], _: f32) {
-        let sample = inputs[0];
-        let a4 = inputs[1];
-        outputs[0] = crate::pitch::equal_temperment::quantize_microtone(a4, sample);
+        let sample = inputs[0] as f64;
+        let a4 = inputs[1] as f64;
+        outputs[0] = crate::pitch::equal_temperment::quantize_microtone(a4, sample) as f32;
     }
 }
 

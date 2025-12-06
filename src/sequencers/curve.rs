@@ -1,12 +1,6 @@
-use std::{cmp::Ordering, f64};
+use std::{cmp::Ordering, f64, fmt::Display};
 
-/// a segment not associated with a curve
-#[derive(Debug, Clone, PartialEq)]
-pub struct OrphanedCurveSegment {
-    pub start: (f64, f64),
-    pub shape: CurveShape,
-    pub end: (f64, f64),
-}
+use egui::Pos2;
 
 /// the identifier for a segment in a curve unique within the curve that produced it
 /// may become invalid after mutating the producing curve
@@ -23,6 +17,29 @@ pub struct CurveSegmentId {
 pub struct CurvePointId {
     index: usize,
     side: CurvePointSide
+}
+
+impl CurvePointId {
+    /// whether this id represents a partial point (one side of a point)
+    pub fn is_partial(&self) -> bool {
+        self.side != CurvePointSide::Continuous
+    }
+
+    /// whether this id represents a point who's continuous on its left
+    pub fn is_left_continuous(&self) -> bool {
+        self.side == CurvePointSide::Left
+    }
+
+    /// whether this id represents a point who's continuous on its right
+    pub fn is_right_continuous(&self) -> bool {
+        self.side == CurvePointSide::Right
+    }
+
+    /// whether this id represents a point who's continuous on its left and right
+    pub fn is_continuous(&self) -> bool {
+        self.side == CurvePointSide::Continuous
+    }
+
 }
 
 impl PartialOrd for CurvePointId {
@@ -43,7 +60,7 @@ impl Ord for CurvePointId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CurvePointSide {
+enum CurvePointSide {
     /// the point is continuous (left and right are the same)
     Continuous,
 
@@ -92,11 +109,66 @@ impl CurvePointSide {
     }
 }
 
+/// the direction of an easing function
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmoothingDirection {
+    In,
+    Out,
+    InOut,
+}
+
+impl SmoothingDirection {
+    /// provides a global method of cycling through shapes
+    /// reverse order
+    pub fn prev(&self) -> Self {
+        match self {
+            Self::In => Self::InOut,
+            Self::Out => Self::In,
+            Self::InOut => Self::Out
+        }
+    }
+
+    /// provides a global method of cycling through shapes
+    /// forward order
+    pub fn next(&self) -> Self {
+        match self {
+            Self::In => Self::Out,
+            Self::Out => Self::InOut,
+            Self::InOut => Self::In
+        }
+    }
+
+    /// the full name of the smoothing direction
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::In => "In",
+            Self::Out => "Out",
+            Self::InOut => "In/Out"
+        }
+    }
+
+    /// the abbreviated name of the smoothing direction (limit 3 characters)
+    pub fn name_brief(&self) -> &'static str {
+        match self {
+            Self::In => "In",
+            Self::Out => "Out",
+            Self::InOut => "I/O",
+        }
+    }
+
+} 
+
 /// the shape of an easing function
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SmoothingShape {
+    /// Linear
+    Linear,
+
     /// Sinusoid
     Sine,
+
+    /// Circular arcs
+    Circular,
 
     /// Cubic bezier
     Cubic,
@@ -109,61 +181,147 @@ pub enum SmoothingShape {
     // Back(f32),
 }
 
-/// A possible easing function for a segment of a curve
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum CurveShape {
-    /// No smoothing
-    Linear,
-
-    /// use smoothing shape at start of transition
-    In(SmoothingShape),
-
-    /// use smoothing shape at end of transition
-    Out(SmoothingShape),
-
-    /// use smoothing shape at start and end of transition
-    InOut(SmoothingShape)
+impl Display for SmoothingShape {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
+    }
 }
 
+impl SmoothingShape {
+    /// gets the full name of the shape
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Linear => "Linear",
+            Self::Sine => "Sine",
+            Self::Circular => "Circular",
+            Self::Cubic => "Cubic",
+            Self::Quartic => "Quartic",
+        }
+    }
+
+    /// Gets the abbreviated name of the shape within 3 characters
+    pub fn name_brief_3(&self) -> &'static str {
+        match self {
+            Self::Linear => "Lin",
+            Self::Sine => "Sin",
+            Self::Circular => "Cir",
+            Self::Cubic => "Cub",
+            Self::Quartic => "Qrt",
+        }
+    }
+
+    /// Gets the abbreviated name of the shape within 4 characters
+    pub fn name_brief_4(&self) -> &'static str {
+        match self {
+            Self::Linear => "Line",
+            Self::Sine => "Sine",
+            Self::Circular => "Circ",
+            Self::Cubic => "Cubc",
+            Self::Quartic => "Qtic",
+        }
+    }
+
+    /// provides a global method of cycling through shapes
+    /// reverse direction
+    pub fn prev(&self) -> Self {
+        match self {
+            Self::Linear => Self::Quartic,
+            Self::Sine => Self::Linear,
+            Self::Circular => Self::Sine,
+            Self::Cubic => Self::Circular,
+            Self::Quartic => Self::Cubic,
+        }
+    }
+
+    /// provides a global method of cycling through shapes
+    /// forward direction
+    pub fn next(&self) -> Self {
+        match self {
+            Self::Linear => Self::Sine,
+            Self::Sine => Self::Circular,
+            Self::Circular => Self::Cubic,
+            Self::Cubic => Self::Quartic,
+            Self::Quartic => Self::Linear,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CurveShape {
+    pub shape: SmoothingShape,
+    pub direction: SmoothingDirection,
+}
+
+impl PartialEq for CurveShape {
+    fn eq(&self, other: &Self) -> bool {
+        type S = SmoothingShape;
+        self.shape == other.shape && (self.direction == other.direction || self.shape == S::Linear)
+    }
+}
+
+impl Eq for CurveShape {}
+
 impl CurveShape {
+    pub const LINEAR: Self = Self::new(SmoothingShape::Linear, SmoothingDirection::InOut);
+
+    pub fn with_shape(&self, shape: SmoothingShape) -> Self {
+        Self::new(shape, self.direction)
+    }
+
+    pub fn with_direction(&self, direction: SmoothingDirection) -> Self {
+        Self::new(self.shape, direction)
+    }
+
+    pub fn is_linear(&self) -> bool {
+        self.shape == SmoothingShape::Linear
+    }
+
+    pub const fn new(shape: SmoothingShape, direction: SmoothingDirection) -> Self {
+        Self {
+            shape,
+            direction
+        }
+    }
+
     pub fn interpolate(&self, x: f64, x_1: f64, x_2: f64, y_1: f64, y_2: f64) -> f64 {
 		type S = SmoothingShape;
-        match self {
-            Self::Linear => {
+        type D = SmoothingDirection;
+        match (self.shape, self.direction) {
+            (S::Linear, _) => {
                 (x - x_1) * (y_2 - y_1) / (x_2 - x_1) + y_1
             }
 
-            Self::In(S::Sine) => {
+            (S::Sine, D::In) => {
                 self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
                     1.0 - f64::cos((x * f64::consts::PI) / 2.0)
                 })
             }
 
-            Self::Out(S::Sine) => {
+            (S::Sine, D::Out) => {
                 self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
                     f64::sin((x * f64::consts::PI) / 2.0)
                 })
             }
 
-            Self::InOut(S::Sine) => {
+            (S::Sine, D::InOut) => {
                 self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
                     (f64::cos(f64::consts::PI * x) - 1.0) / -2.0
                 })
             }
 
-            Self::In(S::Cubic) => {
+            (S::Cubic, D::In) => {
                 self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
                     x.powi(3)
                 })
             }
 
-            Self::Out(S::Cubic) => {
+            (S::Cubic, D::Out) => {
                 self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
                     1.0 + (x - 1.0).powi(3)
                 })
             }
 
-            Self::InOut(S::Cubic) => {
+            (S::Cubic, D::InOut) => {
                 self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
                     if x < 0.5 {
                         4.0 * x.powi(3)
@@ -173,24 +331,49 @@ impl CurveShape {
                 })
             }
 
-            Self::In(S::Quartic) => {
+            (S::Quartic, D::In) => {
                 self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
                     x.powi(4)
                 })
             }
 
-            Self::Out(S::Quartic) => {
+            (S::Quartic, D::Out) => {
                 self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
                     1.0 + (x - 1.0).powi(4)
                 })
             }
 
-            Self::InOut(S::Quartic) => {
+            (S::Quartic, D::InOut) => {
                 self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
                     if x < 0.5 {
                         8.0 * x.powi(4)
                     } else {
                         1.0 - (-2.0 * x + 2.0).powi(4) / 2.0
+                    }
+                })
+            }
+
+            (S::Circular, D::In) => {
+                self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
+                    let adj_x = x - 1.0;
+                    f64::sqrt(1.0 - (adj_x * adj_x))
+                })
+            }
+
+            (S::Circular, D::Out) => {
+                self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
+                    1.0 - f64::sqrt(1.0 - (x * x))
+                })
+            }
+
+            (S::Circular, D::InOut) => {
+                self.generic_interpolate(x, x_1, x_2, y_1, y_2, |x| {
+                    if x < 0.5 {
+                        let adj_x = 2.0 * x;
+                        0.5 * (1.0 - f64::sqrt(1.0 - (adj_x * adj_x)))
+                    } else {
+                        let adj_x = 2.0 * x - 2.0;
+                        0.5 * (1.0 + f64::sqrt(1.0 - (adj_x * adj_x)))
                     }
                 })
             }
@@ -224,6 +407,44 @@ impl CurveShape {
 */
 
         }
+    }
+
+    /// gets the points for a bezier approximation of the shape between the given poitns
+    pub fn bezier_approximation(&self, start: Pos2, end: Pos2) -> [Pos2; 4] {
+		type S = SmoothingShape;
+        type D = SmoothingDirection;
+        let [(x_1, y_1), (x_2, y_2)] = match (self.shape, self.direction) {
+            (S::Linear, _) => [(0.25, 0.25), (0.75, 0.75)],
+
+            (S::Sine, D::In) => [(0.12, 0.0), (0.39, 0.0)],
+            (S::Sine, D::Out) => [(0.61, 1.0), (0.88, 1.0)],
+            (S::Sine, D::InOut) => [(0.37, 0.0), (0.63, 1.0)],
+
+            (S::Circular, D::In) => [(0.55, 0.0), (1.0, 0.45)],
+            (S::Circular, D::Out) => [(0.0, 0.55), (0.45, 1.0)],
+            (S::Circular, D::InOut) => [(0.87, 0.13), (0.13, 0.87)],
+
+            (S::Cubic, D::In) => [(0.33, 0.0), (0.67, 0.0)],
+            (S::Cubic, D::Out) => [(0.33, 1.0), (0.67, 1.0)],
+            (S::Cubic, D::InOut) => [(0.33, 0.0), (0.67, 1.0)],
+
+            (S::Quartic, D::In) => [(0.5, 0.0), (0.75, 0.0)],
+            (S::Quartic, D::Out) => [(0.25, 1.0), (0.5, 1.0)],
+            (S::Quartic, D::InOut) => [(0.76, 0.0), (0.24, 1.0)],
+        };
+
+        [
+            start,
+            Pos2::new(
+                (1.0 - x_1) * start.x + x_1 * end.x,
+                (1.0 - y_1) * start.y + y_1 * end.y
+            ),
+            Pos2::new(
+                (1.0 - x_2) * start.x + x_2 * end.x,
+                (1.0 - y_2) * start.y + y_2 * end.y
+            ),
+            end
+        ]
     }
 
     /// takes a function with range and domain [0, 1]
@@ -300,7 +521,7 @@ impl Curve {
     /// creates a new curve with the given value and duration
     pub fn new(value: f64, duration: f64) -> Self {
         Self {
-            transitions: vec![CurveShape::Linear],
+            transitions: vec![CurveShape::LINEAR],
             values: vec![CurveYValue::new_single(value), CurveYValue::new_single(value)],
             end_times: vec![duration]
         }
@@ -351,6 +572,22 @@ impl Curve {
     /// returns the total duration of the curve
     pub fn total_duration(&self) -> f64 {
         *self.end_times.last().unwrap()
+    }
+
+    /// attempts to create a segment from the given points
+    /// fails if the points occur at the same time or if the points are separated by another point
+    pub fn make_segment(&self, start: CurvePointId, end: CurvePointId) -> Option<CurveSegmentId>{
+        if start.index + 1 != end.index ||
+        !self.point_is_valid(start) ||
+        !self.point_is_valid(end) ||
+        start.side == CurvePointSide::Left ||
+        end.side == CurvePointSide::Right {
+            return None
+        }
+
+        Some(CurveSegmentId {
+            index: start.index
+        })
     }
 
     /// returns the segment at the given time
@@ -577,13 +814,13 @@ impl Curve {
     /// fails if a point already exists at the given time
     ///
     /// returns the point added
-    pub fn add_point(&mut self, time: f64) -> Option<CurvePointId> {
+    pub fn insert_point_at_time(&mut self, time: f64) -> Option<CurvePointId> {
         if time == 0.0 {
             None
 
         } else if time < 0.0 {
             self.values.insert(0, CurveYValue::new_single(self.values.first().unwrap().left_limit));
-            self.transitions.insert(0, CurveShape::Linear);
+            self.transitions.insert(0, CurveShape::LINEAR);
             self.end_times.insert(0, 0.0);
 
             self.end_times.iter_mut().for_each(|f| *f -= time);
@@ -595,7 +832,7 @@ impl Curve {
             if index >= self.end_times.len() {
                 // if we are after total duration, just append data
                 self.values.push(self.values.last().unwrap().clone());
-                self.transitions.push(CurveShape::Linear);
+                self.transitions.push(CurveShape::LINEAR);
                 self.end_times.push(time);
 
             } else {
@@ -613,15 +850,37 @@ impl Curve {
     }
 
     /// sets the value of the given point
-    pub fn set_point_value(&mut self, point: CurvePointId, value: f64) {
+    /// returns the new point (which may change if a discontinuous point becomes continuous)
+    pub fn set_point_value(&mut self, point: CurvePointId, value: f64) -> CurvePointId {
         debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
 
         match point.side {
-            CurvePointSide::Right => { self.values[point.index].right_limit = value; }
-            CurvePointSide::Left => { self.values[point.index].left_limit = value; }
+            CurvePointSide::Right => {
+                self.values[point.index].right_limit = value;
+                CurvePointId {
+                    index: point.index,
+                    side: if self.values[point.index].is_continuous() {
+                        CurvePointSide::Continuous
+                    } else {
+                        point.side
+                    }
+                }
+            },
+            CurvePointSide::Left => {
+                self.values[point.index].left_limit = value;
+                CurvePointId {
+                    index: point.index,
+                    side: if self.values[point.index].is_continuous() {
+                        CurvePointSide::Continuous
+                    } else {
+                        point.side
+                    }
+                }
+            },
             CurvePointSide::Continuous => {
                 self.values[point.index].right_limit = value;
                 self.values[point.index].left_limit = value;
+                point
             }
         }
     }
@@ -732,7 +991,7 @@ impl Curve {
 
                 if time <= min_time {
                     self.values[point.index - 1].right_limit = value;
-                    self.transitions[point.index - 1] = CurveShape::Linear;
+                    self.transitions[point.index - 1] = CurveShape::LINEAR;
 
                     // ensure first point is continuous
                     // it may be that we re-fuse with the first point
@@ -749,7 +1008,7 @@ impl Curve {
 
                 } else {
                     self.values.insert(point.index, CurveYValue::new_single(value));
-                    self.transitions.insert(point.index, CurveShape::Linear);
+                    self.transitions.insert(point.index, CurveShape::LINEAR);
                     self.end_times.insert(point.index - 1, time);
 
                     CurvePointId {
@@ -766,7 +1025,7 @@ impl Curve {
 
                 if time >= max_time {
                     self.values[point.index + 1].left_limit = value;
-                    self.transitions[point.index] = CurveShape::Linear;
+                    self.transitions[point.index] = CurveShape::LINEAR;
 
                     // ensure first point is continuous
                     // it may be that we re-fuse with the first point
@@ -784,7 +1043,7 @@ impl Curve {
 
                 } else {
                     self.values.insert(point.index + 1, CurveYValue::new_single(value));
-                    self.transitions.insert(point.index + 1, CurveShape::Linear);
+                    self.transitions.insert(point.index + 1, CurveShape::LINEAR);
                     self.end_times.insert(point.index, time);
 
                     CurvePointId {
@@ -879,7 +1138,7 @@ impl Curve {
     // gets the segment to the left of the point
     pub fn get_point_left_segment(&self, point: CurvePointId) -> Option<CurveSegmentId> {
         debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
-        if self.point_is_start(point) {
+        if self.point_is_start(point) || point.side == CurvePointSide::Right {
             None
         } else {
             Some(CurveSegmentId { index: point.index - 1 })
@@ -889,7 +1148,7 @@ impl Curve {
     // gets the segment to the right of the point
     pub fn get_point_right_segment(&self, point: CurvePointId) -> Option<CurveSegmentId> {
         debug_assert!(self.point_is_valid(point), "point is not contained in the curve");
-        if self.point_is_end(point) {
+        if self.point_is_end(point) || point.side == CurvePointSide::Left {
             None
         } else {
             Some(CurveSegmentId { index: point.index })
@@ -1113,5 +1372,33 @@ impl Iterator for CurveSegmentIter<'_> {
             None
         }
     }
+}
+
+/// a command that can be passed to a curve
+#[derive(Debug, Clone)]
+pub enum CurveCommand {
+    /// deletes the point with the given id
+    DeletePoint{point: CurvePointId},
+
+    /// delete the points with the range of ids
+    DeletePointRange{start: CurvePointId, end: CurvePointId},
+
+    /// adds a point after the given point with the given value and time
+    AddPoint{point: CurvePointId, value: f64, time: f64},
+
+    /// adds a point to the front with the given value and duration
+    PushPoint{value: f64, duration: f64},
+
+    /// sets the time of the given point
+    SetPointTime{point: CurvePointId, time: f64},
+
+    /// sets the value of the given point
+    SetPointValue{point: CurvePointId, value: f64},
+
+    /// sets the time for the start point of the given range, shifting included points
+    SetRangeTime{start: CurvePointId, end: CurvePointId, time: f64},
+
+    /// sets the shape for the given segment
+    SetSegmentShape{segment: CurveSegmentId, shape: CurveShape},
 }
 

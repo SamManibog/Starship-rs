@@ -722,6 +722,7 @@ impl LivePlugin for EffectGroupOutput {
                 id: 0,
                 name: "Volume".to_string(),
                 short_name: "Vol".to_string(),
+                is_note_input: false,
                 range: (0.0, 1.5),
                 input_values: 0,
                 default: 1.0
@@ -730,6 +731,7 @@ impl LivePlugin for EffectGroupOutput {
                 id: 1,
                 name: "Muted".to_string(),
                 short_name: "Mute".to_string(),
+                is_note_input: false,
                 range: (0.0, 1.0),
                 input_values: 2,
                 default: 0.0
