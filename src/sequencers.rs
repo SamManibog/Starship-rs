@@ -10,5 +10,8 @@ pub mod automation_sequencer;
 /// Sequencer combining all audio
 pub mod track_sequencer;
 
-/// transition curves for sequencers
+/// transition curves for non-note inputs
 pub mod curve;
+
+/// curves for note inputs
+pub mod note;

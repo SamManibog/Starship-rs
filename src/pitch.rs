@@ -74,17 +74,27 @@ impl FromStr for Tone {
 }
 
 impl Tone {
-    /// The number of quarter tones above C
-    pub fn quarter_delta(&self) -> u32 {
+    /// The number of semitones above C
+    pub fn semitone_delta(&self) -> u32 {
         match self {
             Self::C => 0,
-            Self::D => 4,
-            Self::E => 8,
-            Self::F => 10,
-            Self::G => 14,
-            Self::A => 18,
-            Self::B => 22,
+            Self::D => 2,
+            Self::E => 4,
+            Self::F => 5,
+            Self::G => 7,
+            Self::A => 9,
+            Self::B => 11
         }
+    }
+
+    /// The number of quarter tones above C
+    pub fn quarter_delta(&self) -> u32 {
+        self.semitone_delta() * 2
+    }
+
+    /// The number of cents above c
+    pub fn cent_delta(&self) -> u32 {
+        self.semitone_delta() * 100
     }
 }
 
@@ -148,8 +158,12 @@ impl Accidental {
             Self::ThreeQtrSharp => 3,
         }
     }
-}
 
+    /// The number of cents a pitch would be changed by
+    pub fn cent_delta(&self) -> i32 {
+        self.quarter_delta() * 50
+    }
+}
 
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct Pitch {
@@ -176,13 +190,13 @@ impl PartialOrd for Pitch {
 
 impl Ord for Pitch {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.quarters().cmp(&other.quarters())
+        self.quarter_delta_c0_34b().cmp(&other.quarter_delta_c0_34b())
     }
 }
 
 impl PartialEq for Pitch {
     fn eq(&self, other: &Self) -> bool {
-        self.quarters() == other.quarters()
+        self.quarter_delta_c0_34b() == other.quarter_delta_c0_34b()
     }
 }
 
@@ -328,23 +342,23 @@ impl Pitch {
     pub const SEMITONES_PER_OCTAVE: u32 = 12;
 
     /// The number of quarter tones per octave
-    pub const MICROTONES_PER_OCTAVE: u32 = 24;
-
-    /// The number of cents in an octave
-    pub const CENTS_PER_OCTAVE: u32 = 1200;
-
-    /// The number of cents per whole tone
-    pub const CENTS_PER_TONE: u32 = 200;
-
-    /// The number of cents per semitone
-    pub const CENTS_PER_SEMITONE: u32 = 100;
+    pub const MICROTONES_PER_OCTAVE: u32 = Self::SEMITONES_PER_OCTAVE * 2;
 
     /// The number of cents per quarter tone
     pub const CENTS_PER_MICROTONE: u32 = 50;
 
+    /// The number of cents per semitone
+    pub const CENTS_PER_SEMITONE: u32 = Self::CENTS_PER_MICROTONE * 2;
+
+    /// The number of cents per whole tone
+    pub const CENTS_PER_TONE: u32 = Self::CENTS_PER_SEMITONE * 2;
+
+    /// The number of cents in an octave
+    pub const CENTS_PER_OCTAVE: u32 = Self::SEMITONES_PER_OCTAVE * Self::CENTS_PER_SEMITONE;
+
     /// The index of the note relative to C0 ThreeQtrFlat. Each quartertone has
     /// a unique index.
-    pub fn quarters(&self) -> u32 {
+    pub fn quarter_delta_c0_34b(&self) -> u32 {
         ((3 // adjust for C0 ThreeQtrFlat being the lowest representable note
         + (self.octave as u32) * Self::MICROTONES_PER_OCTAVE // incorporate octaves below this one
         + self.tone.quarter_delta()) as i32 // handle tone
@@ -352,25 +366,59 @@ impl Pitch {
     }
 
     /// Gets the number of quarters a given pitch is from A4
-    pub fn quarter_delta(&self) -> i32 {
+    pub fn quarter_delta_a4(&self) -> i32 {
         let a_quarters = Pitch {
             tone: Tone::A,
             accidental: Accidental::Natural,
             octave: 4
-        }.quarters() as i32;
-        let pitch_quarters = self.quarters() as i32;
+        }.quarter_delta_c0_34b() as i32;
+        let pitch_quarters = self.quarter_delta_c0_34b() as i32;
         pitch_quarters - a_quarters
     }
 
+    /// gets the number of cents a given pitch is for c0 ThreeQtrFlat
+    pub fn cent_delta_c0_34b(&self) -> u32 {
+        self.quarter_delta_c0_34b() * Self::CENTS_PER_MICROTONE
+    }
+
     /// Gets the number of cents a given pitch is from A4
-    pub fn cent_delta(&self) -> i32 {
-        self.quarter_delta() * Self::CENTS_PER_MICROTONE as i32
+    pub fn cent_delta_a4(&self) -> i32 {
+        self.quarter_delta_a4() * Self::CENTS_PER_MICROTONE as i32
     }
 
     /// Get the frequency of the pitch using the given tuning system
-    pub fn frequency(&self, tuning_system: TuningSystem) -> f64 {
-        tuning_system.get_pitch_frequency(&self)
+    pub fn frequency(&self, tuning_system: TuningSystem, detune: i32) -> f64 {
+        tuning_system.get_pitch_frequency(&self, detune)
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DetunedPitch {
+    /// base pitch
+    pub base_pitch: Pitch,
+
+    /// detune of the pitch in cents
+    /// i8 is chosen as there is only 100 cents between pitches
+    /// so for detunes 100 cents or greater, we can represent that
+    /// by changing the base pitch
+    pub detune: i8
+}
+
+impl Display for DetunedPitch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}, +{:.2}c", self.base_pitch, self.detune)
+    }
+}
+
+impl DetunedPitch {
+    pub fn cent_delta_c0_34b(&self) -> i32 {
+        self.base_pitch.cent_delta_c0_34b() as i32 + self.detune as i32
+    }
+
+    pub fn cent_delta_a4(&self) -> i32 {
+        self.base_pitch.cent_delta_a4() + self.detune as i32
+    }
+
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -380,9 +428,9 @@ pub enum TuningSystem {
 }
 
 impl TuningSystem {
-    pub fn get_pitch_frequency(&self, pitch: &Pitch) -> f64 {
+    pub fn get_pitch_frequency(&self, pitch: &Pitch, detune: i32) -> f64 {
         match self {
-            Self::EqualTemperment(a4) => equal_temperment::get_pitch_frequency(*a4, pitch)
+            Self::EqualTemperment(a4) => equal_temperment::get_pitch_frequency(*a4, pitch, detune),
         }
     }
 }
@@ -390,12 +438,14 @@ impl TuningSystem {
 pub mod equal_temperment {
     use super::*;
 
+    /// gets the frequency given the difference in cents from a4
+    pub fn get_cent_delta_a4_frequency(a4: f64, cents: f64) -> f64 {
+        a4 as f64 * 2.0_f64.powf(cents / Pitch::CENTS_PER_OCTAVE as f64)
+    }
+
     /// Gets the frequency of the given pitch, given the frequency of A4
-    pub fn get_pitch_frequency(a4: f64, pitch: &Pitch) -> f64 {
-        a4 as f64 * 2.0_f64.powf(
-            pitch.quarter_delta() as f64
-            / Pitch::MICROTONES_PER_OCTAVE as f64
-        )
+    pub fn get_pitch_frequency(a4: f64, pitch: &Pitch, detune: i32) -> f64 {
+        get_cent_delta_a4_frequency(a4, pitch.cent_delta_a4() as f64 + detune as f64)
     }
 
     /// quantizes x to the nearest half tone frequency

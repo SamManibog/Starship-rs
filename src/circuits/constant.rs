@@ -66,7 +66,7 @@ impl CircuitBuilder for ConstantBuilder {
         let value = match self.data().borrow().value {
             PitchOrValue::Value(val) => val,
             PitchOrValue::Pitch(pitch) => {
-                state.tuning.get_pitch_frequency(&pitch) as f32
+                state.tuning.get_pitch_frequency(&pitch, 0) as f32
             }
         };
         Box::new(Constant{ value })

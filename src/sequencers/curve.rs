@@ -286,6 +286,11 @@ impl CurveShape {
     pub fn interpolate(&self, x: f64, x_1: f64, x_2: f64, y_1: f64, y_2: f64) -> f64 {
 		type S = SmoothingShape;
         type D = SmoothingDirection;
+        if x <= x_1 {
+            return y_1;
+        } else if x >= x_2 {
+            return y_2;
+        }
         match (self.shape, self.direction) {
             (S::Linear, _) => {
                 (x - x_1) * (y_2 - y_1) / (x_2 - x_1) + y_1
