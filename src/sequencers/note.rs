@@ -181,7 +181,7 @@ impl Note {
 
     /// returns true if this note is playing at the given time
     pub fn contains_time(&self, time: f64) -> bool {
-        self.start_time().into_beats() <= time && time < self.end_time().into_beats()
+        self.start_time().into_beats() <= time && time <= self.end_time().into_beats()
     }
 
     /// gets the number of partial notes
@@ -218,7 +218,7 @@ impl Note {
     /// Err(i) -> look at transitions[i]
     fn time_index(&self, time: f64) -> Result<usize, usize> {
         self.partials.binary_search_by(|p| {
-            if p.start_time().into_beats() <= time && time < p.end_time().into_beats() {
+            if p.start_time().into_beats() <= time && time <= p.end_time().into_beats() {
                 Ordering::Equal
             } else if p.start_time().into_beats() <= time {
                 Ordering::Less
@@ -698,7 +698,7 @@ impl NotePartial {
 
     /// returns true if the given time is contained in the note
     pub fn contains_time(&self, time: f64) -> bool {
-        self.start_time().into_beats() <= time && time < self.end_time().into_beats()
+        self.start_time().into_beats() <= time && time <= self.end_time().into_beats()
     }
 }
 
@@ -820,7 +820,7 @@ impl Vibrato {
 
     /// gets the amount of modulation (should be added to base frequency) in cents
     pub fn get_cent_delta(&self, time: f64) -> f64 {
-        if time < self.start_time().into_beats() || time > self.end_time().into_beats() {
+        if time < self.start_time().into_beats() || self.end_time().into_beats() < time {
             return 0.0
         }
 
